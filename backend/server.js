@@ -8,6 +8,7 @@ import { setupSocketEvents } from './events/socketEvents.js';
 import authRoutes from './routes/auth.js';
 import roomRoutes from './routes/rooms.js';
 import userRoutes from './routes/users.js';
+import sessionRoutes from './routes/sessions.js';
 
 const app = express();
 const httpServer = createServer(app);
@@ -30,6 +31,7 @@ app.use(express.json());
 app.use('/api/auth', authRoutes);
 app.use('/api/rooms', roomRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/sessions', sessionRoutes);
 
 app.get('/health', (req, res) => {
   res.json({ status: 'Server is running' });

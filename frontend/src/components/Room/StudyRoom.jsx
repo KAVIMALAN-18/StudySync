@@ -1,6 +1,6 @@
 import { useParams, useNavigate } from 'react-router-dom';
-import { useState, useEffect } from 'react';
-import { ArrowLeft, Share2 } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { ArrowLeft } from 'lucide-react';
 import { rooms as roomsApi } from '../../services/api';
 import { useAuth } from '../../hooks/useAuth';
 import { useSocket } from '../../hooks/useSocket';
@@ -12,16 +12,12 @@ export const StudyRoom = () => {
   const { roomId } = useParams();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { socket } = useSocket();
+  const { socket, connected } = useSocket();
   const [room, setRoom] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  useEffect(() => {
-    loadRoom();
-  }, [roomId]);
-
-  const loadRoom = async () => {
+  const loadRoom = useCallback(async () => {
     try {
       setLoading(true);
       const data = await roomsApi.getDetail(roomId);
@@ -33,7 +29,20 @@ export const StudyRoom = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [roomId]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      loadRoom();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [loadRoom]);
+
+  useEffect(() => {
+    if (socket && connected && roomId && user) {
+      socket.emit('room:join', { roomId, userId: user._id });
+    }
+  }, [socket, connected, roomId, user]);
 
   const handleLeaveRoom = async () => {
     try {
@@ -112,7 +121,7 @@ export const StudyRoom = () => {
 
         {/* Right Sidebar - Members */}
         <div className="lg:col-span-1">
-          <RoomMembers roomId={roomId} />
+          <RoomMembers roomId={roomId} initialMembers={room.members} room={room} onRefresh={loadRoom} />
         </div>
       </div>
 

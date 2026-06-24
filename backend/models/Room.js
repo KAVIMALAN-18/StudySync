@@ -20,6 +20,10 @@ const roomSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User'
     }],
+    admins: [{
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    }],
     capacity: {
       type: Number,
       default: 10,
@@ -27,6 +31,10 @@ const roomSchema = new mongoose.Schema(
       max: 50
     },
     isPrivate: {
+      type: Boolean,
+      default: false
+    },
+    isLocked: {
       type: Boolean,
       default: false
     },

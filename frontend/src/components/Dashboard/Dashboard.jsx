@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Users, AlertCircle } from 'lucide-react';
-import { rooms as roomsApi, users as usersApi } from '../../services/api';
+import { rooms as roomsApi, users as usersApi, sessions as sessionsApi } from '../../services/api';
 import { useSocket } from '../../hooks/useSocket';
 import { useAuth } from '../../hooks/useAuth';
 
@@ -9,6 +9,8 @@ export const Dashboard = () => {
   const [publicRooms, setPublicRooms] = useState([]);
   const [myRooms, setMyRooms] = useState([]);
   const [onlineUsers, setOnlineUsers] = useState([]);
+  const [stats, setStats] = useState({ totalFocusMinutes: 0, totalBreakMinutes: 0, totalPomodoros: 0, streak: 0 });
+  const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [showCreateRoom, setShowCreateRoom] = useState(false);
@@ -37,12 +39,16 @@ export const Dashboard = () => {
     try {
       setLoading(true);
       setError(null);
-      const [allRooms, userRooms] = await Promise.all([
+      const [allRooms, userRooms, userStats, userHistory] = await Promise.all([
         roomsApi.getAll(),
         roomsApi.getMyRooms(),
+        sessionsApi.getStats(),
+        sessionsApi.getHistory()
       ]);
       setPublicRooms(allRooms.data || []);
       setMyRooms(userRooms.data || []);
+      setStats(userStats.data || { totalFocusMinutes: 0, totalBreakMinutes: 0, totalPomodoros: 0, streak: 0 });
+      setHistory(userHistory.data || []);
     } catch (err) {
       setError(err.message);
       console.error('Failed to load data:', err);
@@ -282,6 +288,56 @@ export const Dashboard = () => {
                 ))
               )}
             </div>
+          </div>
+
+          {/* My Study Stats */}
+          <div className="bg-white p-6 rounded-lg shadow border border-gray-200">
+            <h3 className="font-semibold text-gray-900 mb-4 font-sans">My Study Stats</h3>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="bg-blue-50 p-3 rounded-lg text-center">
+                <p className="text-xs text-blue-600 font-semibold uppercase">Focus Time</p>
+                <p className="text-xl font-bold text-blue-900 mt-1">{stats.totalFocusMinutes}m</p>
+              </div>
+              <div className="bg-green-50 p-3 rounded-lg text-center">
+                <p className="text-xs text-green-600 font-semibold uppercase">Break Time</p>
+                <p className="text-xl font-bold text-green-900 mt-1">{stats.totalBreakMinutes}m</p>
+              </div>
+              <div className="bg-purple-50 p-3 rounded-lg text-center">
+                <p className="text-xs text-purple-600 font-semibold uppercase">Pomodoros</p>
+                <p className="text-xl font-bold text-purple-900 mt-1">{stats.totalPomodoros}</p>
+              </div>
+              <div className="bg-orange-50 p-3 rounded-lg text-center">
+                <p className="text-xs text-orange-600 font-semibold uppercase">Streak</p>
+                <p className="text-xl font-bold text-orange-900 mt-1">{stats.streak}🔥</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Recent Sessions */}
+          <div className="bg-white p-6 rounded-lg shadow border border-gray-200">
+            <h3 className="font-semibold text-gray-900 mb-4 font-sans">Recent Sessions</h3>
+            {history.length === 0 ? (
+              <p className="text-gray-500 text-sm text-center py-4">No recent sessions</p>
+            ) : (
+              <div className="space-y-3 max-h-60 overflow-y-auto pr-1">
+                {history.map((session, idx) => (
+                  <div key={idx} className="flex justify-between items-center p-2 rounded-lg bg-gray-50 hover:bg-gray-100 text-xs">
+                    <div className="min-w-0 flex-1 mr-2">
+                      <p className="font-semibold text-gray-800 truncate">
+                        {session.roomId?.name || 'Study Room'}
+                      </p>
+                      <p className="text-gray-500 mt-0.5">
+                        {new Date(session.sessionDate).toLocaleDateString()}
+                      </p>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <p className="font-bold text-blue-600">{session.focusMinutes}m focus</p>
+                      <p className="text-gray-500 mt-0.5">{session.pomodoroCount} cycle(s)</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Quick Stats */}

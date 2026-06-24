@@ -1,6 +1,7 @@
 import Room from '../models/Room.js';
 import Message from '../models/Message.js';
 import User from '../models/User.js';
+import { inMemory } from '../utils/inMemoryStore.js';
 
 export const createRoom = async (req, res) => {
   try {
@@ -168,6 +169,10 @@ export const joinRoom = async (req, res) => {
       return res.status(400).json({ error: 'Already in this room' });
     }
 
+    if (room.isLocked) {
+      return res.status(403).json({ error: 'Room is locked' });
+    }
+
     if (room.members.length >= room.capacity) {
       return res.status(400).json({ error: 'Room is full' });
     }
@@ -226,17 +231,122 @@ export const leaveRoom = async (req, res) => {
 };
 
 export const getRoomMessages = async (req, res) => {
-  try {
-    const { roomId } = req.params;
-    const { limit = 50, skip = 0 } = req.query;
+  const { roomId } = req.params;
+  const { limit = 50, skip = 0 } = req.query;
 
+  try {
+    // Try MongoDB first
     const messages = await Message.find({ roomId })
       .sort({ timestamp: -1 })
       .limit(parseInt(limit))
       .skip(parseInt(skip))
       .lean();
 
-    res.json({ data: messages.reverse() });
+    const ordered = messages.reverse();
+
+    // Seed in-memory cache so socket broadcasts are consistent
+    inMemory.seedFromDb(roomId, ordered);
+
+    return res.json({ data: ordered });
+  } catch (error) {
+    // MongoDB unavailable — fall back to in-memory store
+    console.warn(`[getRoomMessages] DB unavailable, serving from memory: ${error.message}`);
+    const memMessages = inMemory.getMessages(roomId, {
+      limit: parseInt(limit),
+      skip: parseInt(skip)
+    });
+    return res.json({ data: memMessages });
+  }
+};
+
+export const promoteMember = async (req, res) => {
+  try {
+    const { roomId } = req.params;
+    const { targetUserId } = req.body;
+    const userId = req.userId;
+
+    const room = await Room.findById(roomId);
+    if (!room) return res.status(404).json({ error: 'Room not found' });
+
+    // Only owner (createdBy) can promote others
+    if (room.createdBy.toString() !== userId) {
+      return res.status(403).json({ error: 'Only the room owner can promote members to admin' });
+    }
+
+    if (!room.members.map(m => m.toString()).includes(targetUserId)) {
+      return res.status(400).json({ error: 'Target user is not a member of this room' });
+    }
+
+    if (room.admins.map(a => a.toString()).includes(targetUserId)) {
+      return res.status(400).json({ error: 'User is already an admin' });
+    }
+
+    room.admins.push(targetUserId);
+    await room.save();
+
+    res.json({ message: 'User promoted to admin successfully', data: room });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+export const kickMember = async (req, res) => {
+  try {
+    const { roomId } = req.params;
+    const { targetUserId } = req.body;
+    const userId = req.userId;
+
+    const room = await Room.findById(roomId);
+    if (!room) return res.status(404).json({ error: 'Room not found' });
+
+    const isOwner = room.createdBy.toString() === userId;
+    const isAdmin = room.admins.map(a => a.toString()).includes(userId);
+
+    if (!isOwner && !isAdmin) {
+      return res.status(403).json({ error: 'Only owners and admins can kick members' });
+    }
+
+    // Owner cannot be kicked
+    if (room.createdBy.toString() === targetUserId) {
+      return res.status(403).json({ error: 'The room owner cannot be kicked' });
+    }
+
+    // Admin cannot kick another admin unless they are the owner
+    const targetIsAdmin = room.admins.map(a => a.toString()).includes(targetUserId);
+    if (targetIsAdmin && !isOwner) {
+      return res.status(403).json({ error: 'Admins cannot kick other admins' });
+    }
+
+    // Remove member
+    room.members = room.members.filter(m => m.toString() !== targetUserId);
+    room.admins = room.admins.filter(a => a.toString() !== targetUserId);
+    await room.save();
+
+    res.json({ message: 'User kicked from room successfully', data: room });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+export const toggleLock = async (req, res) => {
+  try {
+    const { roomId } = req.params;
+    const userId = req.userId;
+
+    const room = await Room.findById(roomId);
+    if (!room) return res.status(404).json({ error: 'Room not found' });
+
+    const isOwner = room.createdBy.toString() === userId;
+    const isAdmin = room.admins.map(a => a.toString()).includes(userId);
+
+    if (!isOwner && !isAdmin) {
+      return res.status(403).json({ error: 'Only owners and admins can lock/unlock the room' });
+    }
+
+    room.isLocked = !room.isLocked;
+    await room.save();
+
+    res.json({ message: `Room ${room.isLocked ? 'locked' : 'unlocked'} successfully`, data: room });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

@@ -76,6 +76,18 @@ export const rooms = {
     apiCall(`/api/rooms/${roomId}/leave`, { method: 'POST' }),
   getMessages: (roomId) =>
     apiCall(`/api/rooms/${roomId}/messages`),
+  promote: (roomId, targetUserId) =>
+    apiCall(`/api/rooms/${roomId}/promote`, {
+      method: 'PATCH',
+      body: JSON.stringify({ targetUserId }),
+    }),
+  kick: (roomId, targetUserId) =>
+    apiCall(`/api/rooms/${roomId}/kick`, {
+      method: 'POST',
+      body: JSON.stringify({ targetUserId }),
+    }),
+  lock: (roomId) =>
+    apiCall(`/api/rooms/${roomId}/lock`, { method: 'PATCH' }),
 };
 
 export const friends = {
@@ -91,4 +103,10 @@ export const friends = {
     apiCall(`/api/friends/decline/${requestId}`, { method: 'POST' }),
   remove: (friendId) =>
     apiCall(`/api/friends/${friendId}`, { method: 'DELETE' }),
+};
+
+export const sessions = {
+  getHistory: () => apiCall('/api/sessions/history'),
+  getStats: () => apiCall('/api/sessions/stats'),
+  getRoomStats: (roomId) => apiCall(`/api/sessions/room/${roomId}`),
 };

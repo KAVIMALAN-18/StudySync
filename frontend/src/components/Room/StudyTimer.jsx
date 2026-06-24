@@ -4,12 +4,49 @@ import { useSocket } from '../../hooks/useSocket';
 
 export const StudyTimer = ({ roomId, duration = 30 }) => {
   const [timeLeft, setTimeLeft] = useState(duration * 60);
+  const [prevDuration, setPrevDuration] = useState(duration);
   const [isRunning, setIsRunning] = useState(false);
   const [timerMode, setTimerMode] = useState('focus');
   const { socket, emit } = useSocket();
 
   const focusDuration = duration * 60;
   const breakDuration = 5 * 60;
+
+  if (duration !== prevDuration) {
+    setPrevDuration(duration);
+    setTimeLeft(duration * 60);
+  }
+
+  useEffect(() => {
+    if (!socket || !roomId) return;
+
+    const handleTimerSync = (data) => {
+      if (data.roomId === roomId) {
+        setTimeLeft(Math.round(data.timeLeft));
+        setIsRunning(data.status === 'running');
+        setTimerMode(data.mode);
+      }
+    };
+
+    const handleTimerUpdate = (data) => {
+      if (data.roomId === roomId) {
+        setTimeLeft(Math.round(data.timeLeft));
+        setIsRunning(data.status === 'running');
+        setTimerMode(data.mode);
+      }
+    };
+
+    socket.on('timer:sync', handleTimerSync);
+    socket.on('timer:update', handleTimerUpdate);
+
+    // Request current room timer state on load
+    socket.emit('timer:state-request', { roomId });
+
+    return () => {
+      socket.off('timer:sync', handleTimerSync);
+      socket.off('timer:update', handleTimerUpdate);
+    };
+  }, [socket, roomId]);
 
   useEffect(() => {
     let interval;
@@ -18,18 +55,7 @@ export const StudyTimer = ({ roomId, duration = 30 }) => {
       interval = setInterval(() => {
         setTimeLeft(prev => {
           if (prev <= 1) {
-            setIsRunning(false);
-
-            if (timerMode === 'focus') {
-              setTimerMode('break');
-              setTimeLeft(breakDuration);
-            } else {
-              setTimerMode('focus');
-              setTimeLeft(focusDuration);
-            }
-
-            emit('timer:pause', { roomId });
-            return 0;
+            return 0; // Stop at 0 and wait for server to switch mode
           }
           return prev - 1;
         });
@@ -37,11 +63,9 @@ export const StudyTimer = ({ roomId, duration = 30 }) => {
     }
 
     return () => clearInterval(interval);
-  }, [isRunning, timerMode, roomId, emit, focusDuration, breakDuration]);
+  }, [isRunning]);
 
   const handleToggle = () => {
-    setIsRunning(!isRunning);
-
     if (!isRunning) {
       emit('timer:start', {
         roomId,
@@ -54,18 +78,19 @@ export const StudyTimer = ({ roomId, duration = 30 }) => {
   };
 
   const handleReset = () => {
-    setIsRunning(false);
-    setTimeLeft(timerMode === 'focus' ? focusDuration : breakDuration);
     emit('timer:reset', {
       roomId,
-      duration: timerMode === 'focus' ? focusDuration : breakDuration
+      duration: timerMode === 'focus' ? focusDuration : breakDuration,
+      mode: timerMode
     });
   };
 
   const handleModeChange = (mode) => {
-    setIsRunning(false);
-    setTimerMode(mode);
-    setTimeLeft(mode === 'focus' ? focusDuration : breakDuration);
+    emit('timer:switch-mode', {
+      roomId,
+      mode,
+      duration: mode === 'focus' ? focusDuration : breakDuration
+    });
   };
 
   const formatTime = (seconds) => {

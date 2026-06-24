@@ -9,7 +9,10 @@ import {
   deleteRoom,
   joinRoom,
   leaveRoom,
-  getRoomMessages
+  getRoomMessages,
+  promoteMember,
+  kickMember,
+  toggleLock
 } from '../controllers/roomController.js';
 
 const router = express.Router();
@@ -23,5 +26,8 @@ router.delete('/:roomId', auth, deleteRoom);
 router.post('/:roomId/join', auth, joinRoom);
 router.post('/:roomId/leave', auth, leaveRoom);
 router.get('/:roomId/messages', getRoomMessages);
+router.patch('/:roomId/promote', auth, promoteMember);
+router.post('/:roomId/kick', auth, kickMember);
+router.patch('/:roomId/lock', auth, toggleLock);
 
 export default router;
