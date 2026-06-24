@@ -92,6 +92,37 @@ export const Dashboard = () => {
     }
   };
 
+  const getWeeklyProgressData = () => {
+    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const result = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      d.setHours(0, 0, 0, 0);
+
+      const daySessions = history.filter((s) => {
+        const sDate = new Date(s.sessionDate);
+        sDate.setHours(0, 0, 0, 0);
+        return sDate.getTime() === d.getTime();
+      });
+
+      const minutes = daySessions.reduce((sum, s) => sum + (s.focusMinutes || 0), 0);
+      result.push({
+        label: days[d.getDay()],
+        minutes
+      });
+    }
+    return result;
+  };
+
+  const weeklyData = getWeeklyProgressData();
+  const maxMinutes = Math.max(...weeklyData.map((d) => d.minutes), 60);
+
+  const bestDayObj = [...weeklyData].sort((a, b) => b.minutes - a.minutes)[0];
+  const bestDayMsg = bestDayObj && bestDayObj.minutes > 0
+    ? `Your most productive day was ${bestDayObj.label} with ${bestDayObj.minutes} focus minutes!`
+    : 'Start a session in a study room to record your daily focus progress.';
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
@@ -118,6 +149,94 @@ export const Dashboard = () => {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Main Content */}
         <div className="lg:col-span-2 space-y-8">
+          {/* Weekly Progress Analytics */}
+          <section className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-6">
+            <div>
+              <h2 className="text-xl font-bold text-gray-900 font-sans">Weekly Progress & Insights</h2>
+              <p className="text-sm text-gray-500 mt-1">Track your daily study activity and habits.</p>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
+              {/* Custom SVG Bar Chart */}
+              <div className="md:col-span-3 space-y-2">
+                <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Minutes Focused</h3>
+                <div className="flex items-end justify-center w-full bg-gray-50 p-4 rounded-lg">
+                  <svg viewBox="0 0 320 150" className="w-full h-36">
+                    {/* Grid lines */}
+                    <line x1="0" y1="120" x2="320" y2="120" stroke="#e5e7eb" strokeWidth="1" />
+                    <line x1="0" y1="60" x2="320" y2="60" stroke="#f3f4f6" strokeWidth="1" strokeDasharray="4 4" />
+                    
+                    {weeklyData.map((d, i) => {
+                      const barWidth = 30;
+                      const gap = 14;
+                      const barHeight = (d.minutes / maxMinutes) * 110;
+                      const x = i * (barWidth + gap) + 10;
+                      const y = 120 - barHeight;
+                      
+                      return (
+                        <g key={i} className="group">
+                          {/* Bar with gradient and hover state */}
+                          <rect
+                            x={x}
+                            y={y}
+                            width={barWidth}
+                            height={barHeight}
+                            rx="4"
+                            className="fill-blue-500 hover:fill-blue-600 transition-all duration-200 cursor-pointer"
+                          />
+                          {/* Value text above bar */}
+                          {d.minutes > 0 && (
+                            <text
+                              x={x + barWidth / 2}
+                              y={y - 6}
+                              textAnchor="middle"
+                              className="text-[10px] font-bold fill-blue-700 opacity-0 group-hover:opacity-100 transition-opacity"
+                            >
+                              {d.minutes}m
+                            </text>
+                          )}
+                          {/* Label underneath */}
+                          <text
+                            x={x + barWidth / 2}
+                            y="140"
+                            textAnchor="middle"
+                            className="text-[10px] font-medium fill-gray-500"
+                          >
+                            {d.label}
+                          </text>
+                        </g>
+                      );
+                    })}
+                  </svg>
+                </div>
+              </div>
+              
+              {/* Productivity Insights */}
+              <div className="md:col-span-2 flex flex-col justify-between space-y-4">
+                <div className="space-y-2">
+                  <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Productivity Insights</h3>
+                  <div className="p-4 rounded-lg bg-blue-50 border border-blue-100 text-xs text-blue-800 leading-relaxed font-medium">
+                    {bestDayMsg}
+                  </div>
+                </div>
+                <div className="p-4 rounded-lg bg-gray-50 border border-gray-100 text-xs text-gray-600 space-y-1.5">
+                  <div className="flex justify-between">
+                    <span>Average Focus/Day:</span>
+                    <span className="font-bold text-gray-800">{(stats.totalFocusMinutes / 7).toFixed(1)}m</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Rooms Explored:</span>
+                    <span className="font-bold text-gray-800">{uniqueRoomsCount}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Daily Average Breaks:</span>
+                    <span className="font-bold text-gray-800">{(stats.totalBreakMinutes / 7).toFixed(1)}m</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
+
           {/* My Rooms */}
           <section>
             <div className="flex items-center justify-between mb-4">

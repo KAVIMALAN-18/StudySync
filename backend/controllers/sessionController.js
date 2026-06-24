@@ -14,11 +14,13 @@ export const recordSession = async (userId, roomId, { focusMinutes = 0, breakMin
 
   // Async MongoDB persist (silent on failure)
   try {
+    const userObjId = new mongoose.Types.ObjectId(userId);
+    const roomObjId = new mongoose.Types.ObjectId(roomId);
     const today = new Date();
     today.setHours(0, 0, 0, 0);
 
     await StudySession.findOneAndUpdate(
-      { userId, roomId, sessionDate: today },
+      { userId: userObjId, roomId: roomObjId, sessionDate: today },
       {
         $inc: {
           focusMinutes,
@@ -60,8 +62,15 @@ export const getSessionStats = async (req, res) => {
 
   // Try DB first
   try {
+    let userObjId;
+    try {
+      userObjId = new mongoose.Types.ObjectId(userId);
+    } catch (e) {
+      return res.status(400).json({ error: 'Invalid user ID' });
+    }
+
     const [aggregate] = await StudySession.aggregate([
-      { $match: { userId: { $eq: userId } } },
+      { $match: { userId: userObjId } },
       {
         $group: {
           _id: null,

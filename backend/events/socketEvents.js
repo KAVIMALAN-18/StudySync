@@ -597,6 +597,31 @@ export const setupSocketEvents = (io) => {
       }
     });
 
+    socket.on('webrtc:join', (data) => {
+      const { roomId, userId } = data;
+      socket.to(`room:${roomId}`).emit('webrtc:user-joined', {
+        socketId: socket.id,
+        userId
+      });
+      console.log(`[WebRTC] User ${userId} (${socket.id}) joined video call in room ${roomId}`);
+    });
+
+    socket.on('webrtc:signal', (data) => {
+      const { targetSocketId, signal } = data;
+      io.to(targetSocketId).emit('webrtc:signal', {
+        senderSocketId: socket.id,
+        signal
+      });
+    });
+
+    socket.on('webrtc:leave', (data) => {
+      const { roomId } = data;
+      socket.to(`room:${roomId}`).emit('webrtc:user-left', {
+        socketId: socket.id
+      });
+      console.log(`[WebRTC] User ${socket.id} left video call in room ${roomId}`);
+    });
+
     socket.on('disconnect', async () => {
       try {
         const userId = socket.userId;

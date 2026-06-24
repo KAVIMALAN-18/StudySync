@@ -9,6 +9,8 @@ import authRoutes from './routes/auth.js';
 import roomRoutes from './routes/rooms.js';
 import userRoutes from './routes/users.js';
 import sessionRoutes from './routes/sessions.js';
+import aiRoutes from './routes/ai.js';
+import fileRoutes from './routes/files.js';
 
 const app = express();
 const httpServer = createServer(app);
@@ -32,6 +34,8 @@ app.use('/api/auth', authRoutes);
 app.use('/api/rooms', roomRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/sessions', sessionRoutes);
+app.use('/api/ai', aiRoutes);
+app.use('/api/files', fileRoutes);
 
 app.get('/health', (req, res) => {
   res.json({ status: 'Server is running' });

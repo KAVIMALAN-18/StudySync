@@ -113,7 +113,7 @@ export const ChatPanel = ({ roomId }) => {
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
-      handleKeyDown.handled = true;
+      e.preventDefault();
       handleSendMessage(e);
     }
   };

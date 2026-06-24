@@ -110,3 +110,21 @@ export const sessions = {
   getStats: () => apiCall('/api/sessions/stats'),
   getRoomStats: (roomId) => apiCall(`/api/sessions/room/${roomId}`),
 };
+
+export const ai = {
+  chat: (prompt, type) =>
+    apiCall('/api/ai/chat', {
+      method: 'POST',
+      body: JSON.stringify({ prompt, type }),
+    }),
+};
+
+export const files = {
+  upload: (roomId, fileData) =>
+    apiCall(`/api/files/${roomId}/upload`, {
+      method: 'POST',
+      body: JSON.stringify(fileData),
+    }),
+  getRoomFiles: (roomId) => apiCall(`/api/files/${roomId}`),
+  download: (fileId) => apiCall(`/api/files/download/${fileId}`),
+};

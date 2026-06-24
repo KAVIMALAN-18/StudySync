@@ -1,196 +1,151 @@
 # StudySync - Virtual Study Room Platform
 
-A real-time collaborative study platform where students can log in, discover other online students, create/join study rooms, chat in real-time, set synchronized study timers, and invite friends for group study sessions.
-
-## 🚀 Quick Start
-
-### Prerequisites
-- **Node.js** v16+ ([Download](https://nodejs.org))
-- **npm** or **yarn**
-- **MongoDB Atlas** account ([Sign up](https://www.mongodb.com/cloud/atlas)) or local MongoDB
-
-### Project Structure
-```
-StudySync/
-├── frontend/                 # React + Vite application
-│   ├── src/
-│   │   ├── components/      # UI components
-│   │   ├── context/         # Auth & Socket contexts
-│   │   ├── hooks/           # Custom hooks (useAuth, useSocket)
-│   │   ├── services/        # API & Socket.io services
-│   │   ├── App.jsx
-│   │   └── main.jsx
-│   ├── public/
-│   ├── package.json
-│   ├── vite.config.js
-│   ├── index.html
-│   ├── .env (local development)
-│   └── .env.production
-│
-├── backend/                  # Express + Node.js server
-│   ├── config/              # Database config
-│   ├── controllers/         # Route handlers
-│   ├── models/              # MongoDB schemas
-│   ├── routes/              # API endpoints
-│   ├── middleware/          # Auth middleware
-│   ├── events/              # Socket.io events
-│   ├── utils/               # Utilities (JWT, etc)
-│   ├── server.js
-│   ├── package.json
-│   ├── .env (local development)
-│   └── .env.production
-│
-├── package.json             # Root monorepo config
-├── README.md
-└── SETUP.md
-```
-
-## 📥 Installation
-
-### Step 1: Install Dependencies
-
-**Install all (root):**
-```bash
-npm install
-```
-
-This will set up monorepo tools.
-
-### Step 2: Configure Backend
-
-1. Navigate to backend folder:
-```bash
-cd backend
-```
-
-2. Update `.env` with your MongoDB connection string:
-```env
-MONGODB_URI=mongodb+srv://username:password@cluster.mongodb.net/studysync
-JWT_SECRET=your_secret_key_here_change_in_production
-PORT=5000
-CORS_ORIGIN=http://localhost:5173
-NODE_ENV=development
-```
-
-### Step 3: Backend Dependencies
-
-```bash
-cd backend
-npm install
-```
-
-### Step 4: Frontend Dependencies
-
-```bash
-cd frontend
-npm install
-```
-
-## 🎯 Running the Application
-
-### Option 1: Run Both Servers (Root Directory)
-```bash
-npm run dev
-```
-This starts backend (5000) and frontend (5173) in parallel.
-
-### Option 2: Run Separately
-
-**Terminal 1 - Backend:**
-```bash
-npm run backend:dev
-# Backend: http://localhost:5000
-```
-
-**Terminal 2 - Frontend:**
-```bash
-npm run frontend:dev
-# Frontend: http://localhost:5173
-```
-
-## 🔐 Authentication
-- Email/Password registration and login
-- JWT tokens in localStorage
-- Protected routes
-- Token in all API requests
-
-## ✨ Core Features
-
-### ✅ Implemented
-- User authentication (JWT)
-- Dashboard with online users
-- Room creation & discovery
-- Real-time chat
-- Study timer (Pomodoro)
-- Room members list
-- Socket.io integration
-
-### 🔄 In Progress
-- Friend system
-- Timer sync
-- User presence
-
-## 🛠 API Endpoints
-
-**Auth:**
-- `POST /api/auth/register`
-- `POST /api/auth/login`
-- `POST /api/auth/logout`
-
-**Rooms:**
-- `GET /api/rooms`
-- `POST /api/rooms`
-- `GET /api/rooms/:roomId`
-- `POST /api/rooms/:roomId/join`
-- `POST /api/rooms/:roomId/leave`
-
-**Users:**
-- `GET /api/users/online`
-- `GET /api/users/profile/:userId`
-
-## 🚀 Deployment
-
-### Frontend Build
-```bash
-cd frontend
-npm run build
-# Deploy 'dist' folder to Vercel/Netlify
-```
-
-### Backend Deployment
-Push to Heroku/Railway/DigitalOcean
-
-## 📝 Environment Variables
-
-**Frontend** (`frontend/.env`):
-```
-VITE_API_URL=http://localhost:5000
-VITE_SOCKET_URL=http://localhost:5000
-```
-
-**Backend** (`backend/.env`):
-```
-MONGODB_URI=your_mongodb_connection_string
-JWT_SECRET=your_secret_key
-PORT=5000
-CORS_ORIGIN=http://localhost:5173
-NODE_ENV=development
-```
-
-## 🐛 Troubleshooting
-
-**Port in use?**
-```bash
-# Windows
-netstat -ano | findstr :5000
-taskkill /PID <PID> /F
-```
-
-**MongoDB connection failed?**
-- Verify MONGODB_URI in backend/.env
-- Check cluster is active in MongoDB Atlas
-- Whitelist your IP
+StudySync is a state-of-the-art, collaborative, virtual study room platform designed to recreate the experience of physical library tables in a digital workspace. Students can sign up, create or join public and private study rooms, set synchronized Pomodoro timers, engage in video/voice calls, chat in real-time, collaborate with a built-in Gemini AI Assistant, and share notes and PDFs securely.
 
 ---
 
-**Happy Studying! 📚**
+## ✨ Features
+
+### 🔐 1. Authentication & Security
+- Secure registration and login using JWT (JSON Web Tokens).
+- Middleware authorization guards for restricted routes and data control.
+- Access control for shared study room resources.
+
+### 👥 2. Real-Time Collaborations & Presence
+- Interactive study rooms listing current members.
+- Real-time user presence tracking (Online / Offline / In Room) with a grace period for browser refreshes.
+- Instant chat and system notification bubbles for timer status changes, member joins, and leaves.
+
+### ⏱️ 3. Shared Pomodoro Timers & Session Tracking
+- Coordinated timer countdowns (Study and Break intervals) broadcast to all participants.
+- Automated study session tracking mapping active focus minutes and break minutes to MongoDB.
+- Automatic recording of completed Pomodoro cycles for all connected users upon timer run down.
+
+### 📊 4. Dashboard Analytics & Insights
+- Interactive charts: Custom responsive SVG bar charts detailing weekly focus minutes.
+- Dynamic productivity insights summarizing total study hours, sessions completed, active rooms joined, and streak tracking.
+
+### 👑 5. Room Management & Lock Controls
+- Role-based authorization: Creator becomes the Owner; can promote other members to Admins.
+- Moderation tools: Owners and Admins can kick users from rooms.
+- Lock Room: Restrict new users from discovering or joining active sessions.
+
+### 🤖 6. Built-in Gemini AI Assistant
+- Integrated doubt-clearing chat assistant.
+- Direct prompt shortcuts: Ask Doubt, Summarize Notes, Explain Concept, and Mock Quiz generation.
+
+### 📹 7. WebRTC Audio, Video & Screen Sharing
+- Multi-user peer-to-peer audio and video calls.
+- High-fidelity screen-sharing capabilities for group presentations.
+- Simulated canvas streaming fallback for testing environments lacking camera/mic hardware.
+
+### 📂 8. Secure File Sharing
+- Shared materials directory within each room.
+- Base64 note sharing and PDF uploads/downloads with robust room permission guards.
+
+---
+
+## 🛠️ Technology Stack
+- **Frontend**: React (v19), Vite, Tailwind CSS, Lucide Icons.
+- **Backend**: Express, Node.js, Socket.io (v4).
+- **Database**: MongoDB (Mongoose).
+- **APIs**: Google Gemini Developer API.
+- **Protocols**: WebRTC, WebSockets (WebSocket signaling).
+
+---
+
+## 🚀 Installation & Local Setup
+
+### Step 1: Install Dependencies
+From the root directory, run:
+```bash
+npm install
+```
+This will set up the monorepo workspace dependencies.
+
+### Step 2: Environment Configuration
+
+Create `backend/.env` in the `backend` directory:
+```env
+MONGODB_URI=mongodb+srv://<username>:<password>@cluster.mongodb.net/studysync?retryWrites=true&w=majority
+JWT_SECRET=your_jwt_secret_key_here
+PORT=5000
+CORS_ORIGIN=http://localhost:5173
+NODE_ENV=development
+GEMINI_API_KEY=your_gemini_api_key_here
+```
+
+Create `frontend/.env` in the `frontend` directory:
+```env
+VITE_API_URL=http://localhost:5000
+```
+
+### Step 3: Run the Application
+Start both the backend server and Vite frontend concurrently from the root directory:
+```bash
+npm run dev
+```
+- Frontend will open at `http://localhost:5173`
+- Backend will run at `http://localhost:5000`
+
+---
+
+## 🛠 API Endpoints Reference
+
+| Category | Endpoint | Method | Auth | Description |
+| :--- | :--- | :--- | :---: | :--- |
+| **Auth** | `/api/auth/register` | POST | No | Register a new user |
+| **Auth** | `/api/auth/login` | POST | No | User login (returns JWT token) |
+| **Auth** | `/api/auth/logout` | POST | Yes | User logout |
+| **Rooms** | `/api/rooms` | GET | No | Get all public active rooms |
+| **Rooms** | `/api/rooms` | POST | Yes | Create a new study room |
+| **Rooms** | `/api/rooms/:roomId` | GET | No | Get room configuration and messages |
+| **Rooms** | `/api/rooms/:roomId/join` | POST | Yes | Join a study room |
+| **Rooms** | `/api/rooms/:roomId/leave` | POST | Yes | Leave a study room |
+| **Rooms** | `/api/rooms/:roomId/promote` | PATCH | Yes | Promote a member to Admin (Owner only) |
+| **Rooms** | `/api/rooms/:roomId/kick` | POST | Yes | Kick a member from room (Owner/Admin) |
+| **Rooms** | `/api/rooms/:roomId/lock` | PATCH | Yes | Toggle room lock state (Owner/Admin) |
+| **Sessions** | `/api/sessions/stats` | GET | Yes | Fetch user total statistics |
+| **Sessions** | `/api/sessions/history` | GET | Yes | Fetch recent user sessions |
+| **Sessions** | `/api/sessions/room/:roomId` | GET | No | Fetch room stats leaderboard |
+| **AI** | `/api/ai/chat` | POST | Yes | Ask Gemini AI assistant |
+| **Files** | `/api/files/:roomId/upload` | POST | Yes | Upload and share study material in room |
+| **Files** | `/api/files/:roomId` | GET | Yes | List files shared in room |
+| **Files** | `/api/files/download/:fileId` | GET | Yes | Download a shared file |
+
+---
+
+## 🚀 Production Deployment Guide
+
+### 1. Database Setup (MongoDB Atlas)
+1. Register on [MongoDB Atlas](https://www.mongodb.com/cloud/atlas).
+2. Create a new Cluster and configure network access to allow connections from anywhere (`0.0.0.0/0` for Render server).
+3. Create a database user and copy the connection string.
+
+### 2. Backend Deployment (Render or Railway)
+1. Link your repository. Choose `node.js` web service.
+2. Set Build Command: `cd backend && npm install`
+3. Set Start Command: `cd backend && npm start`
+4. Declare Environment Variables:
+   - `MONGODB_URI`: Your MongoDB Atlas URI.
+   - `JWT_SECRET`: A long random string.
+   - `PORT`: `5000` (Render binds automatically).
+   - `CORS_ORIGIN`: URL of your deployed frontend (e.g. `https://studysync.vercel.app`).
+   - `NODE_ENV`: `production`
+
+### 3. Frontend Deployment (Vercel)
+1. Link repository. Set Framework Preset: `Vite`.
+2. Set Root Directory: `frontend`
+3. Configure environment variable:
+   - `VITE_API_URL`: Your deployed backend service URL (e.g. `https://studysync-backend.onrender.com`).
+4. Trigger deploy. Vercel will build the frontend assets and serve them.
+
+---
+
+## 🐛 Troubleshooting & Support
+- **Peer Connection Failed**: Ensure you are using `https://` for production WebRTC video calls. Browsers require a secure context to access cameras/mics.
+- **Port Conflict**: If port 5000 is occupied, free it by finding the process:
+  ```bash
+  netstat -ano | findstr :5000
+  taskkill /PID <PID> /F
+  ```

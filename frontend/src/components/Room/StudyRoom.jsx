@@ -7,6 +7,9 @@ import { useSocket } from '../../hooks/useSocket';
 import { ChatPanel } from './ChatPanel';
 import { StudyTimer } from './StudyTimer';
 import { RoomMembers } from './RoomMembers';
+import { AIAssistant } from './AIAssistant';
+import { WebRTCPanel } from './WebRTCPanel';
+import { FileSharingPanel } from './FileSharingPanel';
 
 export const StudyRoom = () => {
   const { roomId } = useParams();
@@ -14,6 +17,7 @@ export const StudyRoom = () => {
   const { user } = useAuth();
   const { socket, connected } = useSocket();
   const [room, setRoom] = useState(null);
+  const [activeTab, setActiveTab] = useState('chat');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -114,9 +118,37 @@ export const StudyRoom = () => {
           <StudyTimer roomId={roomId} duration={room.studyDuration} />
         </div>
 
-        {/* Center - Chat */}
-        <div className="lg:col-span-2">
-          <ChatPanel roomId={roomId} />
+        {/* Center - Interactive Workspace */}
+        <div className="lg:col-span-2 flex flex-col space-y-4">
+          {/* Tab Selector */}
+          <div className="flex bg-gray-100 p-1.5 rounded-xl border border-gray-200">
+            {[
+              { id: 'chat', label: '💬 Chat' },
+              { id: 'ai', label: '🤖 Gemini AI' },
+              { id: 'webrtc', label: '📹 Call' },
+              { id: 'files', label: '📂 Shared Files' }
+            ].map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${
+                  activeTab === tab.id
+                    ? 'bg-white text-blue-600 shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Active Tab Panel */}
+          <div className="flex-grow">
+            {activeTab === 'chat' && <ChatPanel roomId={roomId} />}
+            {activeTab === 'ai' && <AIAssistant roomId={roomId} />}
+            {activeTab === 'webrtc' && <WebRTCPanel roomId={roomId} userId={user._id} />}
+            {activeTab === 'files' && <FileSharingPanel roomId={roomId} />}
+          </div>
         </div>
 
         {/* Right Sidebar - Members */}
