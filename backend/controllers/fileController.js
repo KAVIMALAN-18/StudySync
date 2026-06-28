@@ -32,6 +32,12 @@ export const uploadFile = async (req, res) => {
     await newFile.save();
     await newFile.populate('uploadedBy', 'username');
 
+    // Broadcast file sharing event to room members via Socket.io
+    const io = req.app.get('io');
+    if (io) {
+      io.to(`room:${roomId}`).emit('file:shared', newFile);
+    }
+
     res.status(201).json({ message: 'File shared successfully', data: newFile });
   } catch (error) {
     res.status(500).json({ error: error.message });

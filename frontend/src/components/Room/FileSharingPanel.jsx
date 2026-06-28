@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Upload, FileText, FileImage, FileCode, Download, Loader2, Paperclip, CheckCircle, XCircle, X } from 'lucide-react';
 import { files as filesApi } from '../../services/api';
+import { useSocket } from '../../hooks/useSocket';
+import { useAuth } from '../../hooks/useAuth';
 
 const MAX_FILE_SIZE_MB = 5;
 const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
@@ -35,6 +37,8 @@ export const FileSharingPanel = ({ roomId }) => {
   const [loading, setLoading] = useState(true);
   const [downloadingId, setDownloadingId] = useState(null);
   const [toast, setToast] = useState(null);
+  const { socket } = useSocket();
+  const { user } = useAuth();
 
   const showToast = (message, type = 'error') => {
     setToast({ message, type });
@@ -57,6 +61,30 @@ export const FileSharingPanel = ({ roomId }) => {
   useEffect(() => {
     if (roomId) fetchFiles();
   }, [roomId]);
+
+  useEffect(() => {
+    if (!socket) return;
+
+    const handleFileShared = (newFile) => {
+      if (newFile.roomId !== roomId) return;
+
+      setFiles((prev) => {
+        if (prev.some((f) => f._id === newFile._id)) return prev;
+        return [newFile, ...prev];
+      });
+
+      // Show toast if shared by another user
+      const isUploaderCurrentUser = newFile.uploadedBy?._id === user?._id || newFile.uploadedBy === user?._id;
+      if (!isUploaderCurrentUser) {
+        showToast(`New file shared: "${newFile.name}" by ${newFile.uploadedBy?.username || 'someone'}`, 'success');
+      }
+    };
+
+    socket.on('file:shared', handleFileShared);
+    return () => {
+      socket.off('file:shared', handleFileShared);
+    };
+  }, [socket, roomId, user]);
 
   const handleFileUpload = async (e) => {
     const file = e.target.files[0];

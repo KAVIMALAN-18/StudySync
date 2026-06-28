@@ -1,4 +1,4 @@
-import { Users, Lock, Unlock, ShieldAlert, UserMinus } from 'lucide-react';
+import { Users, Lock, Unlock, ShieldAlert, UserMinus, CheckCircle, XCircle } from 'lucide-react';
 import { useSocket } from '../../hooks/useSocket';
 import { useState, useEffect } from 'react';
 import { sessions as sessionsApi, rooms as roomsApi } from '../../services/api';
@@ -8,8 +8,14 @@ export const RoomMembers = ({ roomId, initialMembers = [], room = null, onRefres
   const [members, setMembers] = useState(initialMembers);
   const [prevInitialMembers, setPrevInitialMembers] = useState(initialMembers);
   const [roomStats, setRoomStats] = useState([]);
+  const [statusMsg, setStatusMsg] = useState(null); // { text, type: 'success'|'error' }
   const { socket } = useSocket();
   const { user: currentUser } = useAuth();
+
+  const showStatus = (text, type = 'success') => {
+    setStatusMsg({ text, type });
+    setTimeout(() => setStatusMsg(null), 3500);
+  };
 
   if (initialMembers !== prevInitialMembers) {
     setPrevInitialMembers(initialMembers);
@@ -55,9 +61,9 @@ export const RoomMembers = ({ roomId, initialMembers = [], room = null, onRefres
     try {
       await roomsApi.promote(roomId, targetUserId);
       if (onRefresh) onRefresh();
-      alert('User promoted to Admin!');
+      showStatus('User promoted to Admin!', 'success');
     } catch (err) {
-      alert(err.message || 'Failed to promote user');
+      showStatus(err.message || 'Failed to promote user', 'error');
     }
   };
 
@@ -68,9 +74,9 @@ export const RoomMembers = ({ roomId, initialMembers = [], room = null, onRefres
       if (onRefresh) onRefresh();
       // Socket event to notify about user being kicked
       socket?.emit('room:leave', { roomId, userId: targetUserId });
-      alert('User kicked from room!');
+      showStatus('User removed from room.', 'success');
     } catch (err) {
-      alert(err.message || 'Failed to kick user');
+      showStatus(err.message || 'Failed to kick user', 'error');
     }
   };
 
@@ -78,8 +84,9 @@ export const RoomMembers = ({ roomId, initialMembers = [], room = null, onRefres
     try {
       await roomsApi.lock(roomId);
       if (onRefresh) onRefresh();
+      showStatus(room?.isLocked ? 'Room unlocked!' : 'Room locked!', 'success');
     } catch (err) {
-      alert(err.message || 'Failed to lock/unlock room');
+      showStatus(err.message || 'Failed to lock/unlock room', 'error');
     }
   };
 
@@ -92,6 +99,20 @@ export const RoomMembers = ({ roomId, initialMembers = [], room = null, onRefres
 
   return (
     <div className="bg-white p-6 rounded-lg border border-gray-200 shadow space-y-6">
+      {/* Inline status toast */}
+      {statusMsg && (
+        <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold border ${
+          statusMsg.type === 'success'
+            ? 'bg-green-50 border-green-200 text-green-800'
+            : 'bg-red-50 border-red-200 text-red-800'
+        }`}>
+          {statusMsg.type === 'success'
+            ? <CheckCircle className="w-3.5 h-3.5 text-green-600 flex-shrink-0" />
+            : <XCircle className="w-3.5 h-3.5 text-red-600 flex-shrink-0" />
+          }
+          <span>{statusMsg.text}</span>
+        </div>
+      )}
       {/* Title & Lock Status */}
       <div className="flex items-center justify-between pb-4 border-b border-gray-100">
         <div className="flex items-center gap-2">

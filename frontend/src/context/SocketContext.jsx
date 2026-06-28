@@ -1,5 +1,5 @@
 import { createContext, useEffect, useState } from 'react';
-import { connectSocket, disconnectSocket, getSocket } from '../services/socket';
+import { connectSocket, disconnectSocket } from '../services/socket';
 
 export const SocketContext = createContext();
 
@@ -9,30 +9,40 @@ export const SocketProvider = ({ children }) => {
   const [error, setError] = useState(null);
 
   useEffect(() => {
+    // Only connect if user is authenticated (token exists)
+    const token = localStorage.getItem('token');
+    if (!token) {
+      return;
+    }
+
     try {
       const sock = connectSocket();
       setSocket(sock);
 
-      sock.on('connect', () => {
+      const onConnect = () => {
         setConnected(true);
         setError(null);
         console.log('Socket connected');
-      });
+      };
 
-      sock.on('disconnect', () => {
+      const onDisconnect = () => {
         setConnected(false);
         console.log('Socket disconnected');
-      });
+      };
 
-      sock.on('connect_error', (err) => {
+      const onConnectError = (err) => {
         console.error('Socket connection error:', err);
         setError(err?.message || 'Connection error');
-      });
+      };
+
+      sock.on('connect', onConnect);
+      sock.on('disconnect', onDisconnect);
+      sock.on('connect_error', onConnectError);
 
       return () => {
-        sock.off('connect');
-        sock.off('disconnect');
-        sock.off('connect_error');
+        sock.off('connect', onConnect);
+        sock.off('disconnect', onDisconnect);
+        sock.off('connect_error', onConnectError);
       };
     } catch (err) {
       console.error('Socket initialization error:', err);

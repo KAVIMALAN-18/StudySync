@@ -46,16 +46,24 @@ export const StudyRoom = () => {
     if (socket && connected && roomId && user) {
       socket.emit('room:join', { roomId, userId: user._id });
     }
+
+    // Cleanup: emit room:leave when component unmounts (navigating away, tab close)
+    return () => {
+      if (socket && roomId && user) {
+        socket.emit('room:leave', { roomId, userId: user._id });
+      }
+    };
   }, [socket, connected, roomId, user]);
 
   const handleLeaveRoom = async () => {
+    if (!window.confirm('Are you sure you want to leave this study room?')) return;
     try {
       await roomsApi.leave(roomId);
       socket?.emit('room:leave', { roomId, userId: user._id });
       navigate('/dashboard');
     } catch (err) {
       console.error('Failed to leave room:', err);
-      alert('Failed to leave room');
+      setError('Failed to leave room: ' + (err.message || 'Unknown error'));
     }
   };
 
