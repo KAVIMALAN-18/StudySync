@@ -19,10 +19,10 @@ export const AuthProvider = ({ children }) => {
     setLoading(false);
   }, []);
 
-  const register = useCallback(async (username, email, password) => {
+  const register = useCallback(async (username, email, password, extraFields = {}) => {
     setError(null);
     try {
-      const data = await authApi.register(username, email, password);
+      const data = await authApi.register(username, email, password, extraFields);
       localStorage.setItem('token', data.token);
       localStorage.setItem('user', JSON.stringify(data.user));
       setUser(data.user);

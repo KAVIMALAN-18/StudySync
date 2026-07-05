@@ -27,10 +27,10 @@ export const apiCall = async (endpoint, options = {}) => {
 };
 
 export const auth = {
-  register: (username, email, password) =>
+  register: (username, email, password, extraFields = {}) =>
     apiCall('/api/auth/register', {
       method: 'POST',
-      body: JSON.stringify({ username, email, password }),
+      body: JSON.stringify({ username, email, password, ...extraFields }),
     }),
 
   login: (email, password) =>
@@ -52,6 +52,7 @@ export const users = {
       body: JSON.stringify(data),
     }),
   getFriends: () => apiCall('/api/users/friends'),
+  search: (query) => apiCall(`/api/users/search?q=${encodeURIComponent(query)}`),
 };
 
 export const rooms = {
@@ -63,6 +64,7 @@ export const rooms = {
   getAll: () => apiCall('/api/rooms'),
   getMyRooms: () => apiCall('/api/rooms/my-rooms'),
   getDetail: (roomId) => apiCall(`/api/rooms/${roomId}`),
+  getById: (roomId) => apiCall(`/api/rooms/${roomId}`),
   update: (roomId, data) =>
     apiCall(`/api/rooms/${roomId}`, {
       method: 'PATCH',
@@ -72,6 +74,11 @@ export const rooms = {
     apiCall(`/api/rooms/${roomId}`, { method: 'DELETE' }),
   join: (roomId) =>
     apiCall(`/api/rooms/${roomId}/join`, { method: 'POST' }),
+  joinByCode: (code) =>
+    apiCall('/api/rooms/join-by-code', {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    }),
   leave: (roomId) =>
     apiCall(`/api/rooms/${roomId}/leave`, { method: 'POST' }),
   getMessages: (roomId) =>
@@ -87,6 +94,18 @@ export const rooms = {
       body: JSON.stringify({ targetUserId }),
     }),
   lock: (roomId) =>
+    apiCall(`/api/rooms/${roomId}/lock`, { method: 'PATCH' }),
+  updateRole: (roomId, targetUserId, role) =>
+    apiCall(`/api/rooms/${roomId}/promote`, {
+      method: 'PATCH',
+      body: JSON.stringify({ targetUserId }),
+    }),
+  removeMember: (roomId, targetUserId) =>
+    apiCall(`/api/rooms/${roomId}/kick`, {
+      method: 'POST',
+      body: JSON.stringify({ targetUserId }),
+    }),
+  toggleLock: (roomId) =>
     apiCall(`/api/rooms/${roomId}/lock`, { method: 'PATCH' }),
 };
 
@@ -106,9 +125,10 @@ export const friends = {
 };
 
 export const sessions = {
-  getHistory: () => apiCall('/api/sessions/history'),
-  getStats: () => apiCall('/api/sessions/stats'),
+  getHistory: (userId) => apiCall(userId ? `/api/sessions/history?userId=${userId}` : '/api/sessions/history'),
+  getStats: (userId) => apiCall(userId ? `/api/sessions/stats?userId=${userId}` : '/api/sessions/stats'),
   getRoomStats: (roomId) => apiCall(`/api/sessions/room/${roomId}`),
+  getRoomLeaderboard: (roomId) => apiCall(`/api/sessions/room/${roomId}`),
 };
 
 export const ai = {

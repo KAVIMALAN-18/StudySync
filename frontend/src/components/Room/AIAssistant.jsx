@@ -1,166 +1,180 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User, Sparkles, MessageSquare, RefreshCw } from 'lucide-react';
+import { Send, Bot, Sparkles, HelpCircle, Code, List } from 'lucide-react';
 import { ai as aiApi } from '../../services/api';
+import { useAuth } from '../../hooks/useAuth';
 
 export const AIAssistant = ({ roomId }) => {
   const [messages, setMessages] = useState([
-    {
-      sender: 'ai',
-      text: 'Hello! I am your StudySync Gemini AI Assistant. How can I help you study today? You can ask doubts, request summaries of your notes, or generate quizzes!',
-      timestamp: new Date()
-    }
+    { role: 'assistant', content: "Hi! I'm your Gemini AI assistant. I can explain concepts, quiz you, or summarize your notes. How can I help you study today?" }
   ]);
   const [input, setInput] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [selectedType, setSelectedType] = useState('doubt'); // doubt, summary, quiz, explain
+  const [activeMode, setActiveMode] = useState('doubt'); // 'doubt' | 'summary' | 'quiz' | 'explain'
+  const [isLoading, setIsLoading] = useState(false);
   const messagesEndRef = useRef(null);
+  const { user } = useAuth();
+
+  const SUGGESTIONS = [
+    { label: 'Explain Concept', icon: HelpCircle, prompt: 'Explain the concept of [insert topic] as if I were 10 years old.', mode: 'explain' },
+    { label: 'Quiz Me', icon: Sparkles, prompt: 'Generate 3 multiple-choice questions about [insert topic].', mode: 'quiz' },
+    { label: 'Summarize', icon: List, prompt: 'Summarize the following text for me: ', mode: 'summary' },
+    { label: 'Ask Doubt', icon: Code, prompt: 'Clear my doubt about...', mode: 'doubt' }
+  ];
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
   const handleSend = async (e) => {
-    e.preventDefault();
-    if (!input.trim() || loading) return;
+    e?.preventDefault();
+    if (!input.trim() || isLoading) return;
 
-    const userMsg = {
-      sender: 'user',
-      text: input.trim(),
-      timestamp: new Date()
-    };
-
-    setMessages((prev) => [...prev, userMsg]);
+    const userMessage = { role: 'user', content: input.trim() };
+    setMessages(prev => [...prev, userMessage]);
     setInput('');
-    setLoading(true);
+    setIsLoading(true);
 
     try {
-      const res = await aiApi.chat(userMsg.text, selectedType);
-      const aiMsg = {
-        sender: 'ai',
-        text: res.reply,
-        timestamp: new Date()
-      };
-      setMessages((prev) => [...prev, aiMsg]);
-    } catch (err) {
-      const errorMsg = {
-        sender: 'ai',
-        text: `Error: ${err.message || 'Failed to connect to AI Assistant. Please try again.'}`,
-        timestamp: new Date()
-      };
-      setMessages((prev) => [...prev, errorMsg]);
+      const response = await aiApi.chat(input.trim(), activeMode);
+      const reply = response.reply || response.data?.reply || 'No reply received.';
+      setMessages(prev => [...prev, { role: 'assistant', content: reply }]);
+    } catch (error) {
+      console.error('AI Chat Error:', error);
+      setMessages(prev => [...prev, { role: 'system', content: error.message || 'Failed to get a response from AI. Please try again later.' }]);
     } finally {
-      setLoading(false);
+      setIsLoading(false);
     }
   };
 
-  const handleShortcut = (prompt, type) => {
-    setSelectedType(type);
+  const handleSuggestion = (prompt, mode) => {
     setInput(prompt);
+    setActiveMode(mode);
+    document.getElementById('ai-input')?.focus();
   };
 
   return (
-    <div className="flex flex-col h-[500px] bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm font-sans">
+    <div className="ai-panel">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white">
-        <div className="flex items-center gap-2">
-          <Bot className="w-5 h-5 animate-pulse" />
-          <div>
-            <h3 className="font-semibold text-sm">Gemini AI Assistant</h3>
-            <p className="text-[10px] text-blue-100">Collaborative Study Support</p>
-          </div>
+      <div className="panel-gradient-header">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: 'white', fontWeight: 700, fontSize: '0.85rem' }}>
+          <Bot size={16} /> Gemini AI
         </div>
-        <Sparkles className="w-4 h-4 text-amber-300" />
+        <div className="badge badge-purple" style={{ border: 'none', background: 'rgba(255,255,255,0.2)' }}>
+          Powered by Google
+        </div>
       </div>
 
-      {/* Mode / Type Selector Chips */}
-      <div className="flex gap-1.5 p-2 bg-gray-50 border-b border-gray-100 overflow-x-auto scrollbar-thin">
-        {[
-          { id: 'doubt', label: '❓ Ask Doubt', prompt: 'Can you explain ' },
-          { id: 'summary', label: '📝 Summarize', prompt: 'Please summarize: ' },
-          { id: 'quiz', label: '🏆 Get Quiz', prompt: 'Generate a 3-question quiz about ' },
-          { id: 'explain', label: '💡 Explain', prompt: 'Explain the concept of ' }
-        ].map((type) => (
-          <button
-            key={type.id}
-            onClick={() => handleShortcut(type.prompt, type.id)}
-            className={`px-3 py-1 rounded-full text-xs font-semibold whitespace-nowrap transition-all ${
-              selectedType === type.id
-                ? 'bg-blue-600 text-white shadow-sm'
-                : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
-            }`}
+      {/* Mode Selector Tab Pills */}
+      <div style={{ display: 'flex', gap: '0.25rem', padding: '0.5rem', background: 'rgba(0,0,0,0.15)', borderBottom: '1px solid var(--border-color)' }}>
+        {['doubt', 'explain', 'summary', 'quiz'].map((m) => (
+          <button 
+            key={m} 
+            type="button"
+            className="tab-pill" 
+            style={{ 
+              flex: 1, 
+              padding: '0.25rem 0.5rem', 
+              fontSize: '0.72rem', 
+              borderRadius: '4px',
+              textTransform: 'capitalize',
+              background: activeMode === m ? 'rgba(129, 140, 248, 0.2)' : 'transparent',
+              border: 'none',
+              color: activeMode === m ? 'var(--text-primary)' : 'var(--text-muted)',
+              cursor: 'pointer',
+              fontWeight: activeMode === m ? 600 : 400
+            }}
+            onClick={() => setActiveMode(m)}
           >
-            {type.label}
+            {m}
           </button>
         ))}
       </div>
 
-      {/* Message Screen */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-gray-50">
+      {/* Suggestion Chips */}
+      <div className="ai-chips-bar">
+        {SUGGESTIONS.map((sug, i) => (
+          <button key={i} className="ai-chip" onClick={() => handleSuggestion(sug.prompt, sug.mode)}>
+            <sug.icon size={12} style={{ display: 'inline', marginRight: '4px', verticalAlign: 'middle' }} />
+            {sug.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Chat Area */}
+      <div className="ai-messages">
         {messages.map((msg, idx) => {
-          const isAI = msg.sender === 'ai';
-          return (
-            <div key={idx} className={`flex gap-2.5 ${isAI ? 'justify-start' : 'justify-end'}`}>
-              {isAI && (
-                <div className="w-7 h-7 bg-blue-600 rounded-full flex items-center justify-center text-white flex-shrink-0">
-                  <Bot className="w-4 h-4" />
-                </div>
-              )}
-              <div className={`max-w-[80%] flex flex-col ${isAI ? 'items-start' : 'items-end'}`}>
-                <div
-                  className={`px-3.5 py-2.5 rounded-2xl text-xs leading-relaxed break-words shadow-sm font-sans ${
-                    isAI
-                      ? 'bg-white text-gray-800 rounded-tl-sm border border-gray-150 prose prose-xs max-w-none'
-                      : 'bg-blue-600 text-white rounded-tr-sm'
-                  }`}
-                  style={{ whiteSpace: 'pre-line' }}
-                >
-                  {msg.text}
-                </div>
-                <span className="text-[9px] text-gray-400 mt-1">
-                  {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          if (msg.role === 'system') {
+            return (
+              <div key={idx} style={{ textAlign: 'center', margin: '0.5rem 0' }}>
+                <span className="chat-bubble-system" style={{ color: '#fca5a5', background: 'rgba(239,68,68,0.1)', borderColor: 'rgba(239,68,68,0.2)' }}>
+                  {msg.content}
                 </span>
               </div>
-              {!isAI && (
-                <div className="w-7 h-7 bg-indigo-500 rounded-full flex items-center justify-center text-white flex-shrink-0 text-xs font-bold">
-                  <User className="w-4 h-4" />
+            );
+          }
+
+          const isUser = msg.role === 'user';
+          
+          return (
+            <div key={idx} className={isUser ? 'ai-msg-user' : 'ai-msg-ai'}>
+              {!isUser && (
+                <div className="ai-bot-avatar">
+                  <Bot size={14} color="white" />
+                </div>
+              )}
+              
+              <div className={isUser ? 'ai-bubble-user' : 'ai-bubble-ai'}>
+                {msg.content}
+              </div>
+
+              {isUser && (
+                <div className="ai-user-avatar">
+                  {(user?.username?.[0] || 'U').toUpperCase()}
                 </div>
               )}
             </div>
           );
         })}
-        {loading && (
-          <div className="flex gap-2.5 justify-start">
-            <div className="w-7 h-7 bg-blue-600 rounded-full flex items-center justify-center text-white flex-shrink-0">
-              <Bot className="w-4 h-4" />
+        
+        {isLoading && (
+          <div className="ai-msg-ai">
+            <div className="ai-bot-avatar">
+              <Bot size={14} color="white" />
             </div>
-            <div className="px-4 py-3 bg-white border border-gray-150 rounded-2xl rounded-tl-sm shadow-sm flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
-              <span className="w-1.5 h-1.5 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
-              <span className="w-1.5 h-1.5 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
+            <div className="ai-bubble-ai">
+              <div className="ai-typing">
+                <div className="typing-dot" style={{ animation: 'bounce-dot 1.4s infinite ease-in-out both', animationDelay: '-0.32s' }} />
+                <div className="typing-dot" style={{ animation: 'bounce-dot 1.4s infinite ease-in-out both', animationDelay: '-0.16s' }} />
+                <div className="typing-dot" style={{ animation: 'bounce-dot 1.4s infinite ease-in-out both' }} />
+              </div>
             </div>
           </div>
         )}
+        
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input Form */}
-      <form onSubmit={handleSend} className="p-3 border-t border-gray-200 bg-white flex gap-2">
-        <input
-          type="text"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder={`Type to ${selectedType}...`}
-          disabled={loading}
-          className="flex-1 px-4 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white transition"
-        />
-        <button
-          type="submit"
-          disabled={loading || !input.trim()}
-          className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-200 disabled:text-gray-400 text-white px-4 rounded-xl flex items-center justify-center transition-all"
-        >
-          <Send className="w-3.5 h-3.5" />
-        </button>
-      </form>
+      {/* Input */}
+      <div className="ai-input-bar">
+        <form onSubmit={handleSend} style={{ display: 'flex', gap: '0.5rem', width: '100%' }}>
+          <input
+            id="ai-input"
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Ask Gemini anything..."
+            className="ai-input"
+            disabled={isLoading}
+            autoComplete="off"
+          />
+          <button
+            type="submit"
+            className="ai-send-btn"
+            disabled={isLoading || !input.trim()}
+          >
+            <Send size={15} />
+          </button>
+        </form>
+      </div>
     </div>
   );
 };

@@ -1,246 +1,178 @@
-import { Users, Lock, Unlock, ShieldAlert, UserMinus, CheckCircle, XCircle } from 'lucide-react';
-import { useSocket } from '../../hooks/useSocket';
 import { useState, useEffect } from 'react';
-import { sessions as sessionsApi, rooms as roomsApi } from '../../services/api';
+import { Shield, Settings, UserMinus, ArrowUpCircle, Lock, Unlock, Users, Trophy } from 'lucide-react';
 import { useAuth } from '../../hooks/useAuth';
+import { rooms as roomsApi, sessions as sessionsApi } from '../../services/api';
 
-export const RoomMembers = ({ roomId, initialMembers = [], room = null, onRefresh = null }) => {
-  const [members, setMembers] = useState(initialMembers);
-  const [prevInitialMembers, setPrevInitialMembers] = useState(initialMembers);
-  const [roomStats, setRoomStats] = useState([]);
-  const [statusMsg, setStatusMsg] = useState(null); // { text, type: 'success'|'error' }
-  const { socket } = useSocket();
-  const { user: currentUser } = useAuth();
-
-  const showStatus = (text, type = 'success') => {
-    setStatusMsg({ text, type });
-    setTimeout(() => setStatusMsg(null), 3500);
-  };
-
-  if (initialMembers !== prevInitialMembers) {
-    setPrevInitialMembers(initialMembers);
-    setMembers(initialMembers);
-  }
+export const RoomMembers = ({ roomId, initialMembers, room, onRefresh }) => {
+  const [members, setMembers] = useState(initialMembers || []);
+  const [leaderboard, setLeaderboard] = useState([]);
+  const [isLocked, setIsLocked] = useState(room?.isLocked || false);
+  const { user } = useAuth();
+  
+  const isOwner = room?.createdBy?._id === user._id || room?.createdBy === user._id;
+  const isAdmin = isOwner || members.some(m => m.user?._id === user._id && m.role === 'admin');
 
   useEffect(() => {
-    if (!socket || !roomId) return;
+    setMembers(initialMembers || []);
+  }, [initialMembers]);
 
-    const handleMembersUpdated = (data) => {
-      if (data.roomId === roomId) {
-        setMembers(data.members || []);
-      }
-    };
-
-    socket.on('room:members-updated', handleMembersUpdated);
-
-    return () => {
-      socket.off('room:members-updated', handleMembersUpdated);
-    };
-  }, [socket, roomId]);
+  useEffect(() => {
+    if (room) {
+      setIsLocked(room.isLocked || false);
+    }
+  }, [room]);
 
   useEffect(() => {
     if (!roomId) return;
-
-    const fetchRoomStats = async () => {
+    const loadLeaderboard = async () => {
       try {
-        const res = await sessionsApi.getRoomStats(roomId);
-        setRoomStats(res.data || []);
+        const res = await sessionsApi.getRoomLeaderboard(roomId);
+        setLeaderboard(res.data || []);
       } catch (err) {
-        console.error('Failed to fetch room stats:', err);
+        console.error('Failed to load leaderboard', err);
       }
     };
+    loadLeaderboard();
+  }, [roomId]);
 
-    fetchRoomStats();
-    const interval = setInterval(fetchRoomStats, 15000); // refresh every 15s
-
-    return () => clearInterval(interval);
-  }, [roomId, members]);
-
-  const handlePromote = async (targetUserId) => {
-    if (!window.confirm('Are you sure you want to promote this user to Admin?')) return;
+  const handlePromote = async (memberId) => {
+    if (!window.confirm('Promote this member to admin?')) return;
     try {
-      await roomsApi.promote(roomId, targetUserId);
-      if (onRefresh) onRefresh();
-      showStatus('User promoted to Admin!', 'success');
+      await roomsApi.updateRole(roomId, memberId, 'admin');
+      onRefresh?.();
     } catch (err) {
-      showStatus(err.message || 'Failed to promote user', 'error');
+      alert('Failed to promote member');
     }
   };
 
-  const handleKick = async (targetUserId) => {
-    if (!window.confirm('Are you sure you want to kick this user from the room?')) return;
+  const handleKick = async (memberId) => {
+    if (!window.confirm('Remove this member from the room?')) return;
     try {
-      await roomsApi.kick(roomId, targetUserId);
-      if (onRefresh) onRefresh();
-      // Socket event to notify about user being kicked
-      socket?.emit('room:leave', { roomId, userId: targetUserId });
-      showStatus('User removed from room.', 'success');
+      await roomsApi.removeMember(roomId, memberId);
+      onRefresh?.();
     } catch (err) {
-      showStatus(err.message || 'Failed to kick user', 'error');
+      alert('Failed to remove member');
     }
   };
 
-  const handleToggleLock = async () => {
+  const toggleLock = async () => {
     try {
-      await roomsApi.lock(roomId);
-      if (onRefresh) onRefresh();
-      showStatus(room?.isLocked ? 'Room unlocked!' : 'Room locked!', 'success');
+      await roomsApi.toggleLock(roomId);
+      setIsLocked(!isLocked);
+      onRefresh?.();
     } catch (err) {
-      showStatus(err.message || 'Failed to lock/unlock room', 'error');
+      alert('Failed to toggle lock status');
     }
   };
-
-  // Helper check roles
-  const ownerId = room?.createdBy?._id || room?.createdBy;
-  const isOwner = String(ownerId) === String(currentUser?._id);
-  const adminsList = room?.admins || [];
-  const isAdmin = adminsList.map(a => String(a._id || a)).includes(String(currentUser?._id));
-  const canManage = isOwner || isAdmin;
 
   return (
-    <div className="bg-white p-6 rounded-lg border border-gray-200 shadow space-y-6">
-      {/* Inline status toast */}
-      {statusMsg && (
-        <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold border ${
-          statusMsg.type === 'success'
-            ? 'bg-green-50 border-green-200 text-green-800'
-            : 'bg-red-50 border-red-200 text-red-800'
-        }`}>
-          {statusMsg.type === 'success'
-            ? <CheckCircle className="w-3.5 h-3.5 text-green-600 flex-shrink-0" />
-            : <XCircle className="w-3.5 h-3.5 text-red-600 flex-shrink-0" />
-          }
-          <span>{statusMsg.text}</span>
-        </div>
-      )}
-      {/* Title & Lock Status */}
-      <div className="flex items-center justify-between pb-4 border-b border-gray-100">
-        <div className="flex items-center gap-2">
-          <Users className="w-5 h-5 text-blue-600" />
-          <h3 className="font-semibold text-gray-900">
-            Members ({members.length})
-          </h3>
-        </div>
-        {canManage && (
-          <button
-            onClick={handleToggleLock}
-            className={`p-1.5 rounded-lg border transition ${
-              room?.isLocked
-                ? 'bg-red-50 border-red-200 text-red-600 hover:bg-red-100'
-                : 'bg-green-50 border-green-200 text-green-600 hover:bg-green-100'
-            }`}
-            title={room?.isLocked ? 'Unlock Room' : 'Lock Room'}
-          >
-            {room?.isLocked ? <Lock className="w-4 h-4" /> : <Unlock className="w-4 h-4" />}
-          </button>
-        )}
-      </div>
-
-      {room?.isLocked && (
-        <div className="bg-red-50 border border-red-200 rounded-lg p-2.5 flex items-center gap-2 text-xs text-red-700">
-          <Lock className="w-4 h-4 text-red-600 flex-shrink-0" />
-          <span>This room is currently locked. No new members can join.</span>
-        </div>
-      )}
-
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+      
       {/* Members List */}
-      <div className="space-y-3">
-        {members.length === 0 ? (
-          <p className="text-gray-500 text-sm text-center py-4">
-            No members yet
-          </p>
-        ) : (
-          members.filter(m => m).map((member) => {
-            const memberId = String(member._id);
-            const isMemberOwner = memberId === String(ownerId);
-            const isMemberAdmin = adminsList.map(a => String(a._id || a)).includes(memberId);
+      <div className="members-card">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
+          <h3 className="section-title-sm" style={{ marginBottom: 0, display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+            <Users size={14} /> Room Members ({members.length})
+          </h3>
+          {isAdmin && (
+            <button 
+              onClick={toggleLock} 
+              className={`btn-icon ${isLocked ? 'locked' : ''}`}
+              style={{ width: '26px', height: '26px', color: isLocked ? '#fca5a5' : '#6ee7b7' }}
+              title={isLocked ? "Unlock Room" : "Lock Room"}
+            >
+              {isLocked ? <Lock size={14} /> : <Unlock size={14} />}
+            </button>
+          )}
+        </div>
 
-            return (
-              <div
-                key={member._id}
-                className="flex items-center gap-3 p-3 rounded-lg bg-gray-50 hover:bg-gray-100 transition text-xs"
-              >
-                <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
-                  {(member.username?.[0] || 'U').toUpperCase()}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-gray-900 truncate">
-                    {member.username || 'Student'}
-                  </p>
-                  <p className="text-gray-500 text-[10px] uppercase font-bold tracking-wider mt-0.5">
-                    {isMemberOwner ? (
-                      <span className="text-amber-600">👑 Owner</span>
-                    ) : isMemberAdmin ? (
-                      <span className="text-purple-600">🛡️ Admin</span>
-                    ) : (
-                      <span className="text-gray-400">Student</span>
-                    )}
-                  </p>
-                </div>
-
-                {/* Role Actions */}
-                {canManage && String(currentUser?._id) !== memberId && !isMemberOwner && (
-                  <div className="flex gap-1.5 flex-shrink-0">
-                    {isOwner && !isMemberAdmin && (
-                      <button
-                        onClick={() => handlePromote(member._id)}
-                        className="p-1 rounded bg-purple-50 hover:bg-purple-100 text-purple-600 border border-purple-200"
-                        title="Promote to Admin"
-                      >
-                        <ShieldAlert className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                    {(!isMemberAdmin || isOwner) && (
-                      <button
-                        onClick={() => handleKick(member._id)}
-                        className="p-1 rounded bg-red-50 hover:bg-red-100 text-red-600 border border-red-200"
-                        title="Kick Member"
-                      >
-                        <UserMinus className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                  </div>
-                )}
-                <div className="w-2 h-2 bg-green-500 rounded-full flex-shrink-0"></div>
-              </div>
-            );
-          })
-        )}
-      </div>
-
-      {/* Room Leaderboard Section */}
-      <div className="pt-6 border-t border-gray-100">
-        <h3 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
-          🏆 Room Leaderboard
-        </h3>
-        {roomStats.length === 0 ? (
-          <p className="text-gray-500 text-sm text-center py-4">
-            No session stats yet
-          </p>
-        ) : (
-          <div className="space-y-3">
-            {roomStats.map((stat, index) => (
-              <div
-                key={stat.userId}
-                className="flex items-center justify-between p-2.5 rounded-lg bg-gray-50 text-xs"
-              >
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className={`font-bold w-5 text-center ${index === 0 ? 'text-yellow-500' : index === 1 ? 'text-gray-400' : index === 2 ? 'text-amber-600' : 'text-gray-400'}`}>
-                    {index + 1}
-                  </span>
-                  <span className="font-semibold text-gray-800 truncate">
-                    {stat.username}
-                  </span>
-                </div>
-                <div className="text-right flex-shrink-0">
-                  <span className="font-bold text-blue-600">{stat.totalFocusMinutes}m</span>
-                  <span className="text-gray-500 ml-1">({stat.totalPomodoros} 🍅)</span>
-                </div>
-              </div>
-            ))}
+        {isLocked && (
+          <div className="lock-banner" style={{ marginBottom: '1rem' }}>
+            <Lock size={14} />
+            Room is locked. New members cannot join.
           </div>
         )}
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem', maxHeight: '300px', overflowY: 'auto' }}>
+          {members.map((member) => {
+            const mUser = member.user || {};
+            const mRole = member.role;
+            const isMe = mUser._id === user._id;
+            const isTargetOwner = room?.createdBy?._id === mUser._id || room?.createdBy === mUser._id;
+
+            return (
+              <div key={mUser._id || Math.random()} className="member-item">
+                <div className="member-avatar">
+                  {(mUser.username?.[0] || '?').toUpperCase()}
+                  {/* Status dot could be added here if synced via socket */}
+                  <span className="member-online-dot" />
+                </div>
+                
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  <div className="member-name">
+                    {mUser.username || 'Student'} {isMe && '(You)'}
+                  </div>
+                  <div className={`member-role ${isTargetOwner ? 'role-owner' : mRole === 'admin' ? 'role-admin' : 'role-student'}`}>
+                    {isTargetOwner ? 'Owner' : mRole}
+                  </div>
+                </div>
+
+                {isAdmin && !isTargetOwner && !isMe && (
+                  <div className="member-actions">
+                    {mRole !== 'admin' && (
+                      <button 
+                        className="member-action-btn member-promote" 
+                        onClick={() => handlePromote(mUser._id)}
+                        title="Promote to Admin"
+                      >
+                        <ArrowUpCircle size={14} />
+                      </button>
+                    )}
+                    <button 
+                      className="member-action-btn member-kick" 
+                      onClick={() => handleKick(mUser._id)}
+                      title="Remove from Room"
+                    >
+                      <UserMinus size={14} />
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
       </div>
+
+      {/* Leaderboard */}
+      <div className="members-card">
+        <h3 className="section-title-sm" style={{ marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.3rem', color: '#fcd34d' }}>
+          <Trophy size={14} /> Leaderboard
+        </h3>
+        
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+          {leaderboard.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '1rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+              No sessions yet.
+            </div>
+          ) : (
+            leaderboard.slice(0, 5).map((entry, index) => {
+              const colors = ['#fcd34d', '#94a3b8', '#b45309', '#a5b4fc', '#a5b4fc'];
+              const color = colors[index] || 'var(--text-secondary)';
+              return (
+                <div key={entry._id} className="leaderboard-item">
+                  <div className="leaderboard-rank" style={{ color }}>#{index + 1}</div>
+                  <div className="leaderboard-name">{entry.username}</div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div className="leaderboard-mins">{entry.totalMinutes}m</div>
+                    <div className="leaderboard-pom">{entry.sessions} 🍅</div>
+                  </div>
+                </div>
+              );
+            })
+          )}
+        </div>
+      </div>
+      
     </div>
   );
 };

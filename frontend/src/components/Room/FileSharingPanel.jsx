@@ -1,244 +1,213 @@
-import { useState, useEffect } from 'react';
-import { Upload, FileText, FileImage, FileCode, Download, Loader2, Paperclip, CheckCircle, XCircle, X } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { Upload, File, FileText, Image as ImageIcon, FileCode, Download, Loader, Trash2, FolderUp } from 'lucide-react';
 import { files as filesApi } from '../../services/api';
 import { useSocket } from '../../hooks/useSocket';
 import { useAuth } from '../../hooks/useAuth';
 
-const MAX_FILE_SIZE_MB = 5;
-const MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024;
-
-const getFileIcon = (name = '', mimetype = '') => {
-  if (mimetype.startsWith('image/')) return <FileImage className="w-5 h-5" />;
-  if (mimetype.includes('pdf') || name.endsWith('.pdf')) return <FileText className="w-5 h-5 text-red-500" />;
-  if (mimetype.includes('text') || name.endsWith('.txt') || name.endsWith('.md')) return <FileCode className="w-5 h-5 text-green-500" />;
-  return <FileText className="w-5 h-5" />;
-};
-
-const Toast = ({ message, type, onClose }) => (
-  <div className={`flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold shadow-sm border ${
-    type === 'success'
-      ? 'bg-green-50 border-green-200 text-green-800'
-      : 'bg-red-50 border-red-200 text-red-800'
-  }`}>
-    {type === 'success'
-      ? <CheckCircle className="w-3.5 h-3.5 text-green-600 flex-shrink-0" />
-      : <XCircle className="w-3.5 h-3.5 text-red-600 flex-shrink-0" />
-    }
-    <span className="flex-1">{message}</span>
-    <button onClick={onClose} className="opacity-60 hover:opacity-100 transition">
-      <X className="w-3 h-3" />
-    </button>
-  </div>
-);
-
 export const FileSharingPanel = ({ roomId }) => {
   const [files, setFiles] = useState([]);
-  const [uploading, setUploading] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [downloadingId, setDownloadingId] = useState(null);
-  const [toast, setToast] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState(null);
+  
+  const fileInputRef = useRef(null);
   const { socket } = useSocket();
   const { user } = useAuth();
-
-  const showToast = (message, type = 'error') => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 4000);
-  };
 
   const fetchFiles = async () => {
     try {
       setLoading(true);
       const res = await filesApi.getRoomFiles(roomId);
       setFiles(res.data || []);
+      setError(null);
     } catch (err) {
-      console.error('Failed to load room files:', err);
-      showToast('Failed to load shared files. Please refresh.', 'error');
+      setError(err.message || 'Failed to load files');
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    if (roomId) fetchFiles();
-  }, [roomId]);
+    if (!roomId) return;
+    fetchFiles();
 
-  useEffect(() => {
-    if (!socket) return;
+    if (socket) {
+      const handleFileShared = (newFile) => {
+        if (newFile.roomId === roomId) {
+          setFiles((prev) => {
+            if (prev.some((f) => f._id === newFile._id)) return prev;
+            return [newFile, ...prev];
+          });
+        }
+      };
 
-    const handleFileShared = (newFile) => {
-      if (newFile.roomId !== roomId) return;
-
-      setFiles((prev) => {
-        if (prev.some((f) => f._id === newFile._id)) return prev;
-        return [newFile, ...prev];
-      });
-
-      // Show toast if shared by another user
-      const isUploaderCurrentUser = newFile.uploadedBy?._id === user?._id || newFile.uploadedBy === user?._id;
-      if (!isUploaderCurrentUser) {
-        showToast(`New file shared: "${newFile.name}" by ${newFile.uploadedBy?.username || 'someone'}`, 'success');
-      }
-    };
-
-    socket.on('file:shared', handleFileShared);
-    return () => {
-      socket.off('file:shared', handleFileShared);
-    };
-  }, [socket, roomId, user]);
+      socket.on('file:shared', handleFileShared);
+      return () => {
+        socket.off('file:shared', handleFileShared);
+      };
+    }
+  }, [roomId, socket]);
 
   const handleFileUpload = async (e) => {
-    const file = e.target.files[0];
+    const file = e.target.files?.[0];
     if (!file) return;
 
-    // Validate file size
-    if (file.size > MAX_FILE_SIZE_BYTES) {
-      showToast(`File too large. Maximum size is ${MAX_FILE_SIZE_MB}MB.`, 'error');
-      e.target.value = '';
+    if (file.size > 10 * 1024 * 1024) {
+      setError('File size exceeds 10MB limit');
       return;
     }
 
-    setUploading(true);
-
-    const reader = new FileReader();
-    reader.onload = async () => {
-      try {
-        const base64Content = reader.result;
-        await filesApi.upload(roomId, {
-          name: file.name,
-          content: base64Content,
-          mimetype: file.type || 'application/octet-stream',
-          size: file.size
-        });
-        await fetchFiles();
-        showToast('File shared successfully!', 'success');
-      } catch (err) {
-        showToast(err.message || 'Failed to upload file. Try a smaller file.', 'error');
-      } finally {
-        setUploading(false);
-        e.target.value = '';
-      }
-    };
-    reader.onerror = () => {
-      showToast('Error reading file. Please try again.', 'error');
-      setUploading(false);
-      e.target.value = '';
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const handleDownload = async (fileId, fileName) => {
-    setDownloadingId(fileId);
     try {
-      const res = await filesApi.download(fileId);
-      const base64Data = res.content;
-
-      const link = document.createElement('a');
-      link.href = base64Data;
-      link.download = fileName;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      showToast(`"${fileName}" downloaded!`, 'success');
+      setUploading(true);
+      setError(null);
+      const res = await filesApi.upload(roomId, file);
+      const newFile = res.data.file;
+      
+      setFiles((prev) => [newFile, ...prev]);
+      
+      if (socket) {
+        socket.emit('file:share', newFile);
+      }
     } catch (err) {
-      showToast(err.message || 'Failed to download file.', 'error');
+      setError(err.message || 'Failed to upload file');
     } finally {
-      setDownloadingId(null);
+      setUploading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
     }
   };
 
-  const formatBytes = (bytes, decimals = 1) => {
-    if (!+bytes) return '0 B';
+  const handleDownload = async (fileId, filename) => {
+    try {
+      const blob = await filesApi.download(fileId);
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (err) {
+      setError('Failed to download file');
+    }
+  };
+
+  const handleDelete = async (fileId) => {
+    if (!window.confirm('Delete this file?')) return;
+    try {
+      await filesApi.delete(fileId);
+      setFiles(files.filter(f => f._id !== fileId));
+    } catch (err) {
+      setError('Failed to delete file');
+    }
+  };
+
+  const getFileIcon = (fileType) => {
+    if (fileType?.startsWith('image/')) return <ImageIcon size={18} color="#f472b6" />;
+    if (fileType?.includes('pdf') || fileType?.includes('document')) return <FileText size={18} color="#60a5fa" />;
+    if (fileType?.includes('javascript') || fileType?.includes('json')) return <FileCode size={18} color="#fcd34d" />;
+    return <File size={18} color="#94a3b8" />;
+  };
+
+  const formatSize = (bytes) => {
+    if (!bytes) return '0 B';
     const k = 1024;
-    const dm = decimals < 0 ? 0 : decimals;
     const sizes = ['B', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
   };
 
   return (
-    <div className="flex flex-col h-[500px] bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm font-sans">
+    <div className="files-panel">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-r from-purple-600 to-indigo-600 text-white flex-shrink-0">
-        <div className="flex items-center gap-2">
-          <Paperclip className="w-5 h-5" />
-          <div>
-            <h3 className="font-semibold text-sm">Shared Resources</h3>
-            <p className="text-[10px] text-purple-100">Upload & download study materials (max {MAX_FILE_SIZE_MB}MB)</p>
-          </div>
+      <div className="panel-header" style={{ padding: '0.75rem 1rem', background: 'rgba(30,27,75,0.5)' }}>
+        <div className="panel-header-title">
+          <FolderUp size={16} color="#c084fc" />
+          Room Files
         </div>
-
-        {/* Upload Button */}
-        <label className={`flex items-center gap-1.5 bg-white/20 hover:bg-white/30 cursor-pointer text-xs px-3 py-1.5 rounded-lg font-semibold transition border border-white/20 ${uploading ? 'opacity-70 pointer-events-none' : ''}`}>
-          {uploading ? (
-            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-          ) : (
-            <Upload className="w-3.5 h-3.5" />
-          )}
-          <span>{uploading ? 'Uploading…' : 'Share File'}</span>
+        
+        <div>
           <input
             type="file"
+            ref={fileInputRef}
             onChange={handleFileUpload}
-            disabled={uploading}
-            className="hidden"
-            accept=".pdf,.txt,.md,.png,.jpg,.jpeg,.gif,.doc,.docx,.ppt,.pptx,.xls,.xlsx,.csv,.zip,.json,.js,.ts,.py"
+            style={{ display: 'none' }}
           />
-        </label>
+          <button
+            className="btn btn-primary"
+            style={{ padding: '0.4rem 0.75rem', fontSize: '0.75rem' }}
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+          >
+            {uploading ? (
+              <><Loader size={14} className="spinner-sm" /> Uploading...</>
+            ) : (
+              <><Upload size={14} /> Upload File</>
+            )}
+          </button>
+        </div>
       </div>
 
-      {/* Toast Notification */}
-      {toast && (
-        <div className="px-3 pt-2 flex-shrink-0">
-          <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />
+      {error && (
+        <div className="files-toast" style={{ paddingTop: '0.625rem' }}>
+          <div className="inline-toast inline-toast-error">
+            {error}
+          </div>
         </div>
       )}
 
-      {/* File List Area */}
-      <div className="flex-1 bg-gray-50 overflow-y-auto p-4">
+      {/* File List */}
+      <div className="files-list">
         {loading ? (
-          <div className="flex items-center justify-center h-full">
-            <Loader2 className="w-8 h-8 text-purple-600 animate-spin" />
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
+            <div className="spinner" />
           </div>
         ) : files.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-gray-400 space-y-2">
-            <FileText className="w-10 h-10 stroke-1 opacity-40 text-purple-600" />
-            <p className="text-xs font-semibold">No shared materials yet</p>
-            <p className="text-[10px]">Be the first to share a note or PDF!</p>
+          <div className="files-empty">
+            <FolderUp size={36} style={{ opacity: 0.2 }} />
+            <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>No files shared yet</div>
+            <div style={{ fontSize: '0.75rem' }}>Upload notes, images, or PDFs to share with the room</div>
           </div>
         ) : (
-          <div className="space-y-2.5">
-            {files.map((file) => (
-              <div
-                key={file._id}
-                className="flex items-center justify-between p-3 bg-white rounded-xl border border-gray-100 shadow-sm hover:shadow-md hover:border-purple-100 transition-all"
-              >
-                <div className="flex items-center gap-3 min-w-0 mr-3">
-                  <div className="w-9 h-9 bg-purple-50 text-purple-600 rounded-lg flex items-center justify-center flex-shrink-0">
-                    {getFileIcon(file.name, file.mimetype)}
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-xs font-semibold text-gray-800 truncate" title={file.name}>
-                      {file.name}
-                    </p>
-                    <p className="text-[10px] text-gray-400 mt-0.5">
-                      {formatBytes(file.size)} • By {file.uploadedBy?.username || 'Unknown'}
-                    </p>
+          files.map((file) => {
+            const isOwner = String(file.uploadedBy?._id || file.uploadedBy) === String(user._id);
+            return (
+              <div key={file._id} className="file-item animate-fade-in">
+                <div className="file-icon-wrap" style={{ background: 'rgba(255,255,255,0.05)' }}>
+                  {getFileIcon(file.fileType)}
+                </div>
+                
+                <div className="file-info">
+                  <div className="file-name" title={file.originalName}>{file.originalName}</div>
+                  <div className="file-meta">
+                    {formatSize(file.size)} • by {file.uploadedBy?.username || 'Unknown'}
                   </div>
                 </div>
 
-                <button
-                  onClick={() => handleDownload(file._id, file.name)}
-                  disabled={downloadingId === file._id}
-                  className="p-2 rounded-lg bg-gray-50 hover:bg-purple-50 text-gray-600 hover:text-purple-600 border border-gray-200 hover:border-purple-200 transition-all flex-shrink-0 disabled:opacity-50"
-                  title="Download File"
-                >
-                  {downloadingId === file._id
-                    ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    : <Download className="w-3.5 h-3.5" />
-                  }
-                </button>
+                <div style={{ display: 'flex', gap: '0.25rem' }}>
+                  <button
+                    className="file-download-btn"
+                    onClick={() => handleDownload(file._id, file.originalName)}
+                    title="Download"
+                  >
+                    <Download size={14} />
+                  </button>
+                  {isOwner && (
+                    <button
+                      className="file-download-btn"
+                      onClick={() => handleDelete(file._id)}
+                      title="Delete"
+                      style={{ color: '#fca5a5', background: 'rgba(239,68,68,0.1)', borderColor: 'transparent' }}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  )}
+                </div>
               </div>
-            ))}
-          </div>
+            );
+          })
         )}
       </div>
     </div>

@@ -1,17 +1,21 @@
-import { createContext, useEffect, useState } from 'react';
+import { createContext, useEffect, useState, useContext } from 'react';
 import { connectSocket, disconnectSocket } from '../services/socket';
+import { AuthContext } from './AuthContext';
 
 export const SocketContext = createContext();
 
 export const SocketProvider = ({ children }) => {
+  const { user } = useContext(AuthContext);
   const [connected, setConnected] = useState(false);
   const [socket, setSocket] = useState(null);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    // Only connect if user is authenticated (token exists)
     const token = localStorage.getItem('token');
-    if (!token) {
+    if (!token || !user) {
+      disconnectSocket();
+      setSocket(null);
+      setConnected(false);
       return;
     }
 
@@ -19,10 +23,20 @@ export const SocketProvider = ({ children }) => {
       const sock = connectSocket();
       setSocket(sock);
 
+      if (sock.connected) {
+        setConnected(true);
+        if (user) {
+          sock.emit('user:online', { userId: user._id, username: user.username, avatar: user.avatar });
+        }
+      }
+
       const onConnect = () => {
         setConnected(true);
         setError(null);
         console.log('Socket connected');
+        if (user) {
+          sock.emit('user:online', { userId: user._id, username: user.username, avatar: user.avatar });
+        }
       };
 
       const onDisconnect = () => {
@@ -48,7 +62,7 @@ export const SocketProvider = ({ children }) => {
       console.error('Socket initialization error:', err);
       setError(err?.message || 'Socket initialization failed');
     }
-  }, []);
+  }, [user]);
 
   const value = {
     socket,

@@ -1,6 +1,9 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Users, AlertCircle } from 'lucide-react';
+import { 
+  Plus, Users, AlertCircle, Clock, BookOpen, Target, Flame, 
+  ChevronRight, Activity, Code, Shield, Key, Sparkles, BookOpenCheck, ArrowRight, Lightbulb
+} from 'lucide-react';
 import { rooms as roomsApi, users as usersApi, sessions as sessionsApi } from '../../services/api';
 import { useSocket } from '../../hooks/useSocket';
 import { useAuth } from '../../hooks/useAuth';
@@ -13,27 +16,75 @@ export const Dashboard = () => {
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  
+  // Create Room States
   const [showCreateRoom, setShowCreateRoom] = useState(false);
   const [roomName, setRoomName] = useState('');
   const [roomDescription, setRoomDescription] = useState('');
   const [roomDuration, setRoomDuration] = useState(30);
+  const [roomSubject, setRoomSubject] = useState('General Study');
+  const [roomIsPrivate, setRoomIsPrivate] = useState(false);
   const [creating, setCreating] = useState(false);
+
+  // Join by Code States
+  const [roomCodeToJoin, setRoomCodeToJoin] = useState('');
+  const [joiningByCode, setJoiningByCode] = useState(false);
+  
   const navigate = useNavigate();
   const { socket, emit, on, off } = useSocket();
   const { user } = useAuth();
 
+  const SUBJECTS = [
+    'General Study',
+    'Java Interview Prep',
+    'DSA Practice',
+    'DBMS Revision',
+    'Operating Systems',
+    'Aptitude Practice',
+    'Web Development',
+    'Machine Learning'
+  ];
+
+  const ONBOARDING_TIPS = [
+    { title: "Create a Room", desc: "Start a public or private study room to get your invite link & room code." },
+    { title: "Add Friends", desc: "Go to the Collaborators tab, search for usernames, and send requests." },
+    { title: "Invite to Session", desc: "Once a friend is online, click Invite next to their name to pull them into your room." },
+    { title: "Auto Analytics", desc: "Every finished Pomodoro session automatically updates your stats and weekly charts." }
+  ];
+
+  const MOTIVATIONAL_QUOTES = [
+    { quote: "Focus is a muscle, and you are building it right now.", author: "StudySync Guide" },
+    { quote: "It always seems impossible until it's done.", author: "Nelson Mandela" },
+    { quote: "Quality is not an act, it is a habit.", author: "Aristotle" },
+    { quote: "The secret of getting ahead is getting started.", author: "Mark Twain" }
+  ];
+
+  // Pick a quote based on username length or day streak so it stays static per session
+  const quoteIndex = (user?.username?.length || 0) % MOTIVATIONAL_QUOTES.length;
+  const todayQuote = MOTIVATIONAL_QUOTES[quoteIndex];
+
   useEffect(() => {
     loadData();
-    emit('user:online', { userId: user._id, username: user.username, avatar: user.avatar });
+    if (socket) {
+      socket.emit('user:online', { userId: user._id, username: user.username, avatar: user.avatar });
 
-    on('users:list', (users) => {
-      setOnlineUsers(users);
-    });
+      const handleUsersList = (users) => {
+        setOnlineUsers(users);
+      };
 
-    return () => {
-      off('users:list', () => {});
-    };
-  }, [user._id, user.username, user.avatar, emit, on, off]);
+      const handleStatsUpdated = () => {
+        loadData();
+      };
+
+      socket.on('users:list', handleUsersList);
+      socket.on('stats:updated', handleStatsUpdated);
+
+      return () => {
+        socket.off('users:list', handleUsersList);
+        socket.off('stats:updated', handleStatsUpdated);
+      };
+    }
+  }, [user._id, user.username, user.avatar, socket]);
 
   const loadData = async () => {
     try {
@@ -64,15 +115,26 @@ export const Dashboard = () => {
       const newRoom = await roomsApi.create({
         name: roomName,
         description: roomDescription,
+        subject: roomSubject,
         studyDuration: parseInt(roomDuration),
-        isPrivate: false,
+        isPrivate: roomIsPrivate,
       });
+      
+      const roomId = newRoom.data._id;
       setMyRooms([...myRooms, newRoom.data]);
       setShowCreateRoom(false);
       setRoomName('');
       setRoomDescription('');
       setRoomDuration(30);
+      setRoomSubject('General Study');
+      setRoomIsPrivate(false);
       setError(null);
+
+      // Join the socket room instantly and navigate
+      if (socket) {
+        socket.emit('room:join', { roomId, userId: user._id });
+      }
+      navigate(`/room/${roomId}`);
     } catch (err) {
       setError(err.message);
       console.error('Failed to create room:', err);
@@ -92,13 +154,46 @@ export const Dashboard = () => {
     }
   };
 
+  const handleJoinByCode = async (e) => {
+    e.preventDefault();
+    if (!roomCodeToJoin.trim()) return;
+
+    try {
+      setJoiningByCode(true);
+      setError(null);
+      const res = await roomsApi.joinByCode(roomCodeToJoin.trim());
+      const roomId = res.data._id;
+      
+      if (socket) {
+        socket.emit('room:join', { roomId, userId: user._id });
+      }
+      navigate(`/room/${roomId}`);
+    } catch (err) {
+      setError(err.message || 'Invalid or inactive room code');
+      console.error('Failed to join by code:', err);
+    } finally {
+      setJoiningByCode(false);
+      setRoomCodeToJoin('');
+    }
+  };
+
   const getWeeklyProgressData = () => {
-    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const result = [];
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date();
-      d.setDate(d.getDate() - i);
-      d.setHours(0, 0, 0, 0);
+    
+    // Find Monday of the current week
+    const today = new Date();
+    const currentDay = today.getDay(); // 0 is Sunday, 1 is Monday...
+    const distanceToMonday = currentDay === 0 ? -6 : 1 - currentDay;
+    
+    const monday = new Date(today);
+    monday.setDate(today.getDate() + distanceToMonday);
+    monday.setHours(0, 0, 0, 0);
+
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(monday);
+      d.setDate(monday.getDate() + i);
 
       const daySessions = history.filter((s) => {
         const sDate = new Date(s.sessionDate);
@@ -107,10 +202,8 @@ export const Dashboard = () => {
       });
 
       const minutes = daySessions.reduce((sum, s) => sum + (s.focusMinutes || 0), 0);
-      result.push({
-        label: days[d.getDay()],
-        minutes
-      });
+      const label = `${dayNames[d.getDay()]} ${d.getDate()} ${monthNames[d.getMonth()]}`;
+      result.push({ label, minutes });
     }
     return result;
   };
@@ -118,362 +211,394 @@ export const Dashboard = () => {
   const weeklyData = getWeeklyProgressData();
   const maxMinutes = Math.max(...weeklyData.map((d) => d.minutes), 60);
 
-  const bestDayObj = [...weeklyData].sort((a, b) => b.minutes - a.minutes)[0];
-  const bestDayMsg = bestDayObj && bestDayObj.minutes > 0
-    ? `Your most productive day was ${bestDayObj.label} with ${bestDayObj.minutes} focus minutes!`
-    : 'Start a session in a study room to record your daily focus progress.';
+  // Continue last session logic
+  const lastSessionRoom = history.length > 0 ? history[0].roomId : null;
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <div className="text-center">
-          <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading dashboard...</p>
+      <div className="dashboard-shell" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh' }}>
+        <div style={{ textAlign: 'center' }}>
+          <div className="spinner" style={{ margin: '0 auto 1rem' }} />
+          <p style={{ color: 'var(--text-muted)' }}>Loading your study command center...</p>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="max-w-7xl mx-auto">
-      {error && (
-        <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4 flex items-center gap-3">
-          <AlertCircle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
-          <div>
-            <p className="text-red-800 text-sm font-semibold">Error</p>
-            <p className="text-red-700 text-sm">{error}</p>
+    <div className="dashboard-shell animate-fade-in" style={{ padding: '2rem', maxWidth: '1200px', margin: '0 auto' }}>
+      
+      {/* ── Welcome and Motivate section ── */}
+      <div className="dashboard-header" style={{ marginBottom: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1.5rem' }}>
+        <div>
+          <h1 className="dashboard-greeting" style={{ fontSize: '2rem' }}>Welcome back, <span>{user.username}</span>!</h1>
+          <p className="dashboard-sub" style={{ fontSize: '0.95rem' }}>
+            "{todayQuote.quote}" — <span style={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>{todayQuote.author}</span>
+          </p>
+        </div>
+        
+        {/* Continue Last Session Quick Action */}
+        {lastSessionRoom && (
+          <div className="glass-card animate-pulse-glow" style={{ padding: '0.75rem 1.25rem', border: '1px solid rgba(129,140,248,0.25)', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '1rem', background: 'rgba(99, 102, 241, 0.05)' }}>
+            <div>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>CONTINUE STUDYING</div>
+              <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'white' }}>{lastSessionRoom.name}</div>
+            </div>
+            <button 
+              onClick={() => navigate(`/room/${lastSessionRoom._id}`)} 
+              className="btn btn-primary" 
+              style={{ padding: '0.4rem 0.85rem', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
+            >
+              Resume <ArrowRight size={14} />
+            </button>
           </div>
+        )}
+      </div>
+
+      {error && (
+        <div className="inline-toast inline-toast-error animate-slide-up" style={{ marginBottom: '1.5rem' }}>
+          <AlertCircle size={16} />
+          {error}
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Main Content */}
-        <div className="lg:col-span-2 space-y-8">
-          {/* Weekly Progress Analytics */}
-          <section className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm space-y-6">
-            <div>
-              <h2 className="text-xl font-bold text-gray-900 font-sans">Weekly Progress & Insights</h2>
-              <p className="text-sm text-gray-500 mt-1">Track your daily study activity and habits.</p>
-            </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
-              {/* Custom SVG Bar Chart */}
-              <div className="md:col-span-3 space-y-2">
-                <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Minutes Focused</h3>
-                <div className="flex items-end justify-center w-full bg-gray-50 p-4 rounded-lg">
-                  <svg viewBox="0 0 320 150" className="w-full h-36">
-                    {/* Grid lines */}
-                    <line x1="0" y1="120" x2="320" y2="120" stroke="#e5e7eb" strokeWidth="1" />
-                    <line x1="0" y1="60" x2="320" y2="60" stroke="#f3f4f6" strokeWidth="1" strokeDasharray="4 4" />
-                    
-                    {weeklyData.map((d, i) => {
-                      const barWidth = 30;
-                      const gap = 14;
-                      const barHeight = (d.minutes / maxMinutes) * 110;
-                      const x = i * (barWidth + gap) + 10;
-                      const y = 120 - barHeight;
-                      
-                      return (
-                        <g key={i} className="group">
-                          {/* Bar with gradient and hover state */}
-                          <rect
-                            x={x}
-                            y={y}
-                            width={barWidth}
-                            height={barHeight}
-                            rx="4"
-                            className="fill-blue-500 hover:fill-blue-600 transition-all duration-200 cursor-pointer"
-                          />
-                          {/* Value text above bar */}
-                          {d.minutes > 0 && (
-                            <text
-                              x={x + barWidth / 2}
-                              y={y - 6}
-                              textAnchor="middle"
-                              className="text-[10px] font-bold fill-blue-700 opacity-0 group-hover:opacity-100 transition-opacity"
-                            >
-                              {d.minutes}m
-                            </text>
-                          )}
-                          {/* Label underneath */}
-                          <text
-                            x={x + barWidth / 2}
-                            y="140"
-                            textAnchor="middle"
-                            className="text-[10px] font-medium fill-gray-500"
-                          >
-                            {d.label}
-                          </text>
-                        </g>
-                      );
-                    })}
-                  </svg>
-                </div>
-              </div>
-              
-              {/* Productivity Insights */}
-              <div className="md:col-span-2 flex flex-col justify-between space-y-4">
-                <div className="space-y-2">
-                  <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Productivity Insights</h3>
-                  <div className="p-4 rounded-lg bg-blue-50 border border-blue-100 text-xs text-blue-800 leading-relaxed font-medium">
-                    {bestDayMsg}
-                  </div>
-                </div>
-                <div className="p-4 rounded-lg bg-gray-50 border border-gray-100 text-xs text-gray-600 space-y-1.5">
-                  <div className="flex justify-between">
-                    <span>Average Focus/Day:</span>
-                    <span className="font-bold text-gray-800">{(stats.totalFocusMinutes / 7).toFixed(1)}m</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Rooms Explored:</span>
-                    <span className="font-bold text-gray-800">{uniqueRoomsCount}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Daily Average Breaks:</span>
-                    <span className="font-bold text-gray-800">{(stats.totalBreakMinutes / 7).toFixed(1)}m</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </section>
+      {/* ── Top Stat Cards ── */}
+      <div className="stat-cards-grid" style={{ marginBottom: '2rem' }}>
+        <div className="stat-card">
+          <div className="stat-icon" style={{ background: 'rgba(99,102,241,0.1)', color: '#a5b4fc' }}>
+            <Clock size={20} />
+          </div>
+          <div className="stat-value">{stats.totalFocusMinutes}m</div>
+          <div className="stat-label">Total Focus Time</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-icon" style={{ background: 'rgba(16,185,129,0.1)', color: '#6ee7b7' }}>
+            <Target size={20} />
+          </div>
+          <div className="stat-value">{stats.totalPomodoros}</div>
+          <div className="stat-label">Pomodoros Done</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-icon" style={{ background: 'rgba(245,158,11,0.1)', color: '#fcd34d' }}>
+            <Flame size={20} />
+          </div>
+          <div className="stat-value">{stats.streak}</div>
+          <div className="stat-label">Daily Streak</div>
+        </div>
+        <div className="stat-card">
+          <div className="stat-icon" style={{ background: 'rgba(217,70,239,0.1)', color: '#f0abfc' }}>
+            <BookOpen size={20} />
+          </div>
+          <div className="stat-value">{myRooms.length}</div>
+          <div className="stat-label">Active Rooms</div>
+        </div>
+      </div>
 
-          {/* My Rooms */}
-          <section>
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-2xl font-bold text-gray-900">My Study Rooms</h2>
-              <button
-                onClick={() => setShowCreateRoom(!showCreateRoom)}
-                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition"
-              >
-                <Plus className="w-5 h-5" />
-                Create Room
+      {/* ── Two-Column Layout ── */}
+      <div className="dashboard-grid">
+        
+        {/* ── Left Main Content ── */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+          
+          {/* Weekly Analytics Chart */}
+          <div className="chart-card">
+            <h2 className="section-title"><Activity size={18} color="#a5b4fc" /> Focus Progress & Metrics</h2>
+            <div style={{ height: '180px', marginTop: '1.5rem', position: 'relative' }}>
+              <svg width="100%" height="100%" viewBox="0 0 700 180" preserveAspectRatio="none">
+                <defs>
+                  <linearGradient id="barGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#818cf8" />
+                    <stop offset="100%" stopColor="#4f46e5" />
+                  </linearGradient>
+                </defs>
+                
+                {/* Grid Lines */}
+                <line x1="0" y1="140" x2="700" y2="140" className="chart-grid-line" strokeWidth="1" />
+                <line x1="0" y1="70" x2="700" y2="70" className="chart-grid-line" strokeWidth="1" strokeDasharray="4 4" />
+
+                {weeklyData.map((d, i) => {
+                  const barWidth = 40;
+                  const gap = (700 - (7 * barWidth)) / 8;
+                  const barHeight = Math.max((d.minutes / maxMinutes) * 120, 4); // min height 4
+                  const x = gap + i * (barWidth + gap);
+                  const y = 140 - barHeight;
+
+                  return (
+                    <g key={i}>
+                      {/* Background Bar */}
+                      <rect x={x} y="20" width={barWidth} height="120" rx="4" className="chart-bar-bg" />
+                      {/* Foreground Bar */}
+                      <rect x={x} y={y} width={barWidth} height={barHeight} rx="4" className="chart-bar-fill" />
+                      
+                      {d.minutes > 0 && (
+                        <text x={x + barWidth/2} y={y - 8} textAnchor="middle" className="chart-val-label">
+                          {d.minutes}m
+                        </text>
+                      )}
+                      
+                      <text x={x + barWidth/2} y="165" textAnchor="middle" className="chart-label">
+                        {d.label}
+                      </text>
+                    </g>
+                  );
+                })}
+              </svg>
+            </div>
+          </div>
+
+          {/* Room Controls (Create Room & Join Code Inline) */}
+          <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+            <h2 className="section-title" style={{ marginBottom: 0 }}><BookOpen size={18} color="#a5b4fc" /> My Study Rooms</h2>
+            
+            <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+              {/* Join by Code Mini Form */}
+              <form onSubmit={handleJoinByCode} style={{ display: 'flex', gap: '0.375rem' }}>
+                <input 
+                  type="text" 
+                  value={roomCodeToJoin}
+                  onChange={(e) => setRoomCodeToJoin(e.target.value)}
+                  placeholder="Enter Room Code"
+                  className="input-dark"
+                  style={{ width: '130px', padding: '0.4rem 0.75rem', fontSize: '0.8rem', borderRadius: '6px' }}
+                  required
+                />
+                <button type="submit" disabled={joiningByCode} className="btn btn-ghost" style={{ padding: '0.4rem 0.75rem', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.25rem', borderColor: 'rgba(255,255,255,0.1)' }}>
+                  <Key size={12} /> {joiningByCode ? 'Joining...' : 'Join'}
+                </button>
+              </form>
+              
+              <button className="btn btn-primary" onClick={() => setShowCreateRoom(!showCreateRoom)} style={{ padding: '0.45rem 1rem', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+                <Plus size={16} /> Create Room
               </button>
             </div>
+          </div>
 
-            {showCreateRoom && (
-              <form onSubmit={handleCreateRoom} className="bg-blue-50 p-6 rounded-lg mb-6 border border-blue-200">
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Room Name
-                    </label>
-                    <input
-                      type="text"
-                      value={roomName}
-                      onChange={(e) => setRoomName(e.target.value)}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="e.g., Math Study Group"
-                      required
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Description
-                    </label>
-                    <textarea
-                      value={roomDescription}
-                      onChange={(e) => setRoomDescription(e.target.value)}
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="What will you study?"
-                      rows="3"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Study Duration (minutes)
-                    </label>
-                    <input
-                      type="number"
-                      value={roomDuration}
-                      onChange={(e) => setRoomDuration(e.target.value)}
-                      min="5"
-                      max="240"
-                      className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-
-                  <div className="flex gap-3">
-                    <button
-                      type="submit"
-                      disabled={creating}
-                      className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white py-2 rounded-lg transition font-semibold"
-                    >
-                      {creating ? 'Creating...' : 'Create'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setShowCreateRoom(false)}
-                      className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-800 py-2 rounded-lg transition font-semibold"
-                    >
-                      Cancel
-                    </button>
-                  </div>
+          {showCreateRoom && (
+            <form onSubmit={handleCreateRoom} className="create-room-panel animate-scale-up" style={{ padding: '1.75rem', borderRadius: '12px', background: 'rgba(15, 23, 42, 0.8)', border: '1px solid rgba(255,255,255,0.08)' }}>
+              <h3 className="section-title-sm" style={{ marginBottom: '1.25rem', color: 'var(--text-primary)' }}>Create New Study Space</h3>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                <div style={{ gridColumn: 'span 2' }}>
+                  <label className="auth-label">Room Name</label>
+                  <input
+                    type="text"
+                    value={roomName}
+                    onChange={(e) => setRoomName(e.target.value)}
+                    className="input-dark"
+                    placeholder="e.g., Late Night DSA Grind"
+                    required
+                  />
                 </div>
-              </form>
-            )}
+                
+                <div style={{ gridColumn: 'span 2' }}>
+                  <label className="auth-label">Description</label>
+                  <textarea
+                    value={roomDescription}
+                    onChange={(e) => setRoomDescription(e.target.value)}
+                    className="input-dark"
+                    placeholder="What are the goals of this session?"
+                    rows="2"
+                    style={{ resize: 'none' }}
+                  />
+                </div>
 
-            {myRooms.length === 0 ? (
-              <p className="text-gray-600 text-center py-8">No rooms yet. Create one to get started!</p>
-            ) : (
-              <div className="grid gap-4">
-                {myRooms.map((room) => (
-                  <div
-                    key={room._id}
-                    onClick={() => navigate(`/room/${room._id}`)}
-                    className="bg-white p-6 rounded-lg shadow hover:shadow-lg cursor-pointer transition border border-gray-200"
+                <div>
+                  <label className="auth-label">Subject</label>
+                  <select 
+                    value={roomSubject}
+                    onChange={(e) => setRoomSubject(e.target.value)}
+                    className="input-dark"
+                    style={{ width: '100%', background: 'rgba(15,23,42,0.8)' }}
                   >
-                    <h3 className="text-lg font-semibold text-gray-900 mb-2">{room.name}</h3>
-                    <p className="text-gray-600 text-sm mb-3">{room.description}</p>
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-4 text-sm text-gray-600">
-                        <span>{room.members?.length || 0} members</span>
-                        <span>{room.studyDuration} min</span>
+                    {SUBJECTS.map((sub) => (
+                      <option key={sub} value={sub}>{sub}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="auth-label">Focus Duration</label>
+                  <select 
+                    value={roomDuration}
+                    onChange={(e) => setRoomDuration(e.target.value)}
+                    className="input-dark"
+                    style={{ width: '100%', background: 'rgba(15,23,42,0.8)' }}
+                  >
+                    <option value="25">25 mins (Pomodoro standard)</option>
+                    <option value="30">30 mins</option>
+                    <option value="45">45 mins</option>
+                    <option value="50">50 mins</option>
+                    <option value="60">60 mins</option>
+                    <option value="90">90 mins</option>
+                  </select>
+                </div>
+
+                <div style={{ gridColumn: 'span 2' }}>
+                  <label className="auth-label">Room Privacy</label>
+                  <select 
+                    value={roomIsPrivate ? 'private' : 'public'}
+                    onChange={(e) => setRoomIsPrivate(e.target.value === 'private')}
+                    className="input-dark"
+                    style={{ width: '100%', background: 'rgba(15,23,42,0.8)' }}
+                  >
+                    <option value="public">Public Study Room (visible to everyone)</option>
+                    <option value="private">Private Study Room (accessible via invitation/invite link only)</option>
+                  </select>
+                </div>
+
+                <div style={{ gridColumn: 'span 2', display: 'flex', gap: '0.75rem', marginTop: '0.5rem' }}>
+                  <button type="submit" disabled={creating} className="btn btn-primary" style={{ flex: 1 }}>
+                    {creating ? 'Spawning Space...' : 'Spawn Room'}
+                  </button>
+                  <button type="button" onClick={() => setShowCreateRoom(false)} className="btn btn-ghost" style={{ flex: 1 }}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            </form>
+          )}
+
+          {/* Rooms Grid */}
+          {myRooms.length === 0 ? (
+            <div className="empty-state glass-card" style={{ padding: '3rem 2rem' }}>
+              <BookOpenCheck size={36} className="empty-state-icon" style={{ color: '#818cf8', opacity: 0.6 }} />
+              <div className="empty-state-title">No Custom Rooms Yet</div>
+              <div className="empty-state-sub" style={{ marginBottom: '1.25rem' }}>Your personal study spaces will be listed here. You can make them public for anyone to join, or keep them private for close friends.</div>
+              <button className="btn btn-primary" onClick={() => setShowCreateRoom(true)}>
+                <Plus size={16} /> Spawn Your First Room
+              </button>
+            </div>
+          ) : (
+            <div className="rooms-grid">
+              {myRooms.map((room) => (
+                <div key={room._id} onClick={() => navigate(`/room/${room._id}`)} className="room-card" style={{ cursor: 'pointer' }}>
+                  <div className={`room-card-accent ${room.isPrivate ? 'private' : ''}`} style={{ background: room.isPrivate ? 'linear-gradient(135deg, #c084fc, #a855f7)' : 'linear-gradient(135deg, #818cf8, #4f46e5)' }} />
+                  <div className="room-card-body">
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
+                      <span className="room-subject" style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{room.subject || 'General Study'}</span>
+                      {room.isPrivate && <span style={{ fontSize: '0.65rem', padding: '0.1rem 0.4rem', borderRadius: '4px', background: 'rgba(192, 132, 252, 0.1)', color: '#c084fc', border: '1px solid rgba(192, 132, 252, 0.2)' }}>Private</span>}
+                    </div>
+                    <h3 className="room-card-title">{room.name}</h3>
+                    <p className="room-card-desc">{room.description || 'No description provided.'}</p>
+                    <div className="room-card-meta" style={{ marginTop: '1rem' }}>
+                      <div className="room-card-stat">
+                        <Users size={14} /> {room.members?.length || 0} studying
                       </div>
-                      <span className={`px-3 py-1 rounded-full text-xs font-medium ${
-                        room.status === 'active'
-                          ? 'bg-green-100 text-green-800'
-                          : 'bg-gray-100 text-gray-800'
-                      }`}>
-                        {room.status}
-                      </span>
+                      <div className="room-card-stat">
+                        <Clock size={14} /> {room.studyDuration}m session
+                      </div>
                     </div>
                   </div>
-                ))}
-              </div>
-            )}
-          </section>
+                </div>
+              ))}
+            </div>
+          )}
 
-          {/* Public Rooms */}
-          <section>
-            <h2 className="text-2xl font-bold text-gray-900 mb-4">Public Study Rooms</h2>
-            {publicRooms.length === 0 ? (
-              <p className="text-gray-600 text-center py-8">No public rooms available</p>
-            ) : (
-              <div className="grid gap-4">
-                {publicRooms.map((room) => (
-                  <div
-                    key={room._id}
-                    className="bg-white p-6 rounded-lg shadow hover:shadow-lg transition border border-gray-200"
-                  >
-                    <div className="flex items-start justify-between">
-                      <div className="flex-1">
-                        <h3 className="text-lg font-semibold text-gray-900 mb-2">{room.name}</h3>
-                        <p className="text-gray-600 text-sm mb-3">{room.description}</p>
-                        <div className="flex items-center gap-4 text-sm text-gray-600">
-                          <span>{room.members?.length || 0} members</span>
-                          <span>{room.studyDuration} min</span>
-                        </div>
+          {/* Public Study Spaces */}
+          <h2 className="section-title"><Users size={18} color="#6ee7b7" /> Join Active Public Rooms</h2>
+          {publicRooms.length === 0 ? (
+            <div className="empty-state glass-card-sm" style={{ padding: '2.5rem 1.5rem' }}>
+              <Users size={32} className="empty-state-icon" style={{ opacity: 0.3 }} />
+              <div className="empty-state-title">All Quiet Here</div>
+              <div className="empty-state-sub">There are currently no active public study spaces. Why not create one and start a public session?</div>
+            </div>
+          ) : (
+            <div className="rooms-grid">
+              {publicRooms.map((room) => (
+                <div key={room._id} className="room-card">
+                  <div className="room-card-accent-cyan" />
+                  <div className="room-card-body">
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
+                      <span className="room-subject" style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{room.subject || 'General Study'}</span>
+                    </div>
+                    <h3 className="room-card-title">{room.name}</h3>
+                    <p className="room-card-desc">{room.description || 'No description provided.'}</p>
+                    
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '1rem' }}>
+                      <div className="room-card-stat">
+                        <Users size={14} /> {room.members?.length || 0} active
                       </div>
                       <button
-                        onClick={() => handleJoinRoom(room._id)}
-                        className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition whitespace-nowrap"
+                        onClick={(e) => { e.stopPropagation(); handleJoinRoom(room._id); }}
+                        className="badge badge-emerald"
+                        style={{ cursor: 'pointer', border: 'none', padding: '0.35rem 0.75rem', borderRadius: '4px', fontSize: '0.75rem' }}
                       >
-                        Join
+                        Enter Room <ChevronRight size={12} />
                       </button>
                     </div>
                   </div>
-                ))}
-              </div>
-            )}
-          </section>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
-        {/* Sidebar */}
-        <aside className="space-y-6">
-          {/* Online Users */}
-          <div className="bg-white p-6 rounded-lg shadow border border-gray-200">
-            <div className="flex items-center gap-2 mb-4">
-              <Users className="w-5 h-5 text-blue-600" />
-              <h3 className="font-semibold text-gray-900">Online Now</h3>
+        {/* ── Right Sidebar ── */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+          
+          {/* Onboarding tips */}
+          <div className="sidebar-card" style={{ background: 'rgba(99,102,241,0.02)', border: '1px solid rgba(129,140,248,0.1)' }}>
+            <h3 className="section-title-sm" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#a5b4fc' }}>
+              <Lightbulb size={16} /> Quick Start Tips
+            </h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', marginTop: '0.75rem' }}>
+              {ONBOARDING_TIPS.map((tip, i) => (
+                <div key={i} style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
+                  <div style={{ background: 'rgba(129,140,248,0.1)', color: '#818cf8', fontSize: '0.7rem', fontWeight: 900, borderRadius: '4px', padding: '0.1rem 0.35rem', marginTop: '2px' }}>
+                    {i+1}
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-primary)' }}>{tip.title}</div>
+                    <div style={{ fontSize: '0.725rem', color: 'var(--text-muted)' }}>{tip.desc}</div>
+                  </div>
+                </div>
+              ))}
             </div>
-            <div className="space-y-3">
+          </div>
+
+          {/* Online Users */}
+          <div className="sidebar-card">
+            <h3 className="section-title-sm">Active Online ({onlineUsers.length})</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', marginTop: '0.75rem' }}>
               {onlineUsers.length === 0 ? (
-                <p className="text-gray-600 text-sm text-center py-4">No one online</p>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'center', padding: '1rem 0' }}>All collaborators offline</div>
               ) : (
                 onlineUsers.slice(0, 8).map((u, idx) => (
-                  <div key={idx} className="flex items-center gap-3 p-2 rounded hover:bg-gray-50">
-                    <div className="w-8 h-8 bg-blue-200 rounded-full flex items-center justify-center flex-shrink-0">
-                      <span className="text-blue-600 text-xs font-bold">
-                        {(u.username?.[0] || 'U').toUpperCase()}
-                      </span>
+                  <div key={idx} className="online-user-item" style={{ padding: '0.4rem 0.6rem', borderRadius: '6px', background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.03)' }}>
+                    <div className="online-user-avatar" style={{ background: 'rgba(129,140,248,0.15)', color: '#818cf8', fontWeight: 'bold' }}>
+                      {(u.username?.[0] || 'U').toUpperCase()}
+                      <span className="online-dot" style={{ background: '#10b981' }} />
                     </div>
-                    <span className="text-sm text-gray-700 truncate flex-1">
-                      {u.username || 'Student'}
-                    </span>
-                    <div className="w-2 h-2 bg-green-500 rounded-full flex-shrink-0"></div>
+                    <div className="online-user-name" style={{ fontSize: '0.8rem' }}>{u.username || 'Student'}</div>
                   </div>
                 ))
               )}
             </div>
           </div>
 
-          {/* My Study Stats */}
-          <div className="bg-white p-6 rounded-lg shadow border border-gray-200">
-            <h3 className="font-semibold text-gray-900 mb-4 font-sans">My Study Stats</h3>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="bg-blue-50 p-3 rounded-lg text-center">
-                <p className="text-xs text-blue-600 font-semibold uppercase">Focus Time</p>
-                <p className="text-xl font-bold text-blue-900 mt-1">{stats.totalFocusMinutes}m</p>
-              </div>
-              <div className="bg-green-50 p-3 rounded-lg text-center">
-                <p className="text-xs text-green-600 font-semibold uppercase">Break Time</p>
-                <p className="text-xl font-bold text-green-900 mt-1">{stats.totalBreakMinutes}m</p>
-              </div>
-              <div className="bg-purple-50 p-3 rounded-lg text-center">
-                <p className="text-xs text-purple-600 font-semibold uppercase">Pomodoros</p>
-                <p className="text-xl font-bold text-purple-900 mt-1">{stats.totalPomodoros}</p>
-              </div>
-              <div className="bg-orange-50 p-3 rounded-lg text-center">
-                <p className="text-xs text-orange-600 font-semibold uppercase">Streak</p>
-                <p className="text-xl font-bold text-orange-900 mt-1">{stats.streak}🔥</p>
-              </div>
-            </div>
-          </div>
-
           {/* Recent Sessions */}
-          <div className="bg-white p-6 rounded-lg shadow border border-gray-200">
-            <h3 className="font-semibold text-gray-900 mb-4 font-sans">Recent Sessions</h3>
-            {history.length === 0 ? (
-              <p className="text-gray-500 text-sm text-center py-4">No recent sessions</p>
-            ) : (
-              <div className="space-y-3 max-h-60 overflow-y-auto pr-1">
-                {history.map((session, idx) => (
-                  <div key={idx} className="flex justify-between items-center p-2 rounded-lg bg-gray-50 hover:bg-gray-100 text-xs">
-                    <div className="min-w-0 flex-1 mr-2">
-                      <p className="font-semibold text-gray-800 truncate">
-                        {session.roomId?.name || 'Study Room'}
-                      </p>
-                      <p className="text-gray-500 mt-0.5">
-                        {new Date(session.sessionDate).toLocaleDateString()}
-                      </p>
+          <div className="sidebar-card">
+            <h3 className="section-title-sm">Recent Activity</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.75rem', maxHeight: '300px', overflowY: 'auto' }}>
+              {history.length === 0 ? (
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'center', padding: '1rem 0' }}>No recent study history</div>
+              ) : (
+                history.map((session, idx) => (
+                  <div key={idx} className="session-item" style={{ padding: '0.6rem 0.85rem', borderRadius: '6px', background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.03)' }}>
+                    <div>
+                      <div className="session-room" style={{ fontSize: '0.8rem', fontWeight: 600 }}>{session.roomId?.name || 'Study Room'}</div>
+                      <div className="session-date" style={{ fontSize: '0.675rem' }}>{new Date(session.sessionDate).toLocaleDateString()}</div>
                     </div>
-                    <div className="text-right flex-shrink-0">
-                      <p className="font-bold text-blue-600">{session.focusMinutes}m focus</p>
-                      <p className="text-gray-500 mt-0.5">{session.pomodoroCount} cycle(s)</p>
+                    <div style={{ textAlign: 'right' }}>
+                      <div className="session-mins" style={{ fontSize: '0.8rem', fontWeight: 700, color: '#818cf8' }}>{session.focusMinutes}m</div>
+                      <div className="session-date" style={{ fontSize: '0.675rem' }}>{session.pomodoroCount} 🍅</div>
                     </div>
                   </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Quick Stats */}
-          <div className="bg-white p-6 rounded-lg shadow border border-gray-200">
-            <h3 className="font-semibold text-gray-900 mb-4">Stats</h3>
-            <div className="space-y-3">
-              <div>
-                <p className="text-sm text-gray-600">Active Rooms</p>
-                <p className="text-2xl font-bold text-blue-600">{publicRooms.length}</p>
-              </div>
-              <div>
-                <p className="text-sm text-gray-600">Online Students</p>
-                <p className="text-2xl font-bold text-green-600">{onlineUsers.length}</p>
-              </div>
+                ))
+              )}
             </div>
           </div>
-        </aside>
+        </div>
+
       </div>
     </div>
   );

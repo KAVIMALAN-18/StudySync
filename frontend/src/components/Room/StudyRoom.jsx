@@ -1,78 +1,117 @@
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useState, useEffect, useCallback } from 'react';
-import { ArrowLeft } from 'lucide-react';
-import { rooms as roomsApi } from '../../services/api';
-import { useAuth } from '../../hooks/useAuth';
 import { useSocket } from '../../hooks/useSocket';
+import { useAuth } from '../../hooks/useAuth';
+import { rooms as roomsApi } from '../../services/api';
 import { ChatPanel } from './ChatPanel';
-import { StudyTimer } from './StudyTimer';
-import { RoomMembers } from './RoomMembers';
 import { AIAssistant } from './AIAssistant';
-import { WebRTCPanel } from './WebRTCPanel';
 import { FileSharingPanel } from './FileSharingPanel';
+import { StudyTimer } from './StudyTimer';
+import { WebRTCPanel } from './WebRTCPanel';
+import { RoomMembers } from './RoomMembers';
+import { MessageSquare, Sparkles, FolderUp, Video, LogOut, ArrowLeft, ShieldAlert, Copy, Check } from 'lucide-react';
 
 export const StudyRoom = () => {
   const { roomId } = useParams();
   const navigate = useNavigate();
-  const { user } = useAuth();
   const { socket, connected } = useSocket();
+  const { user } = useAuth();
+  
   const [room, setRoom] = useState(null);
-  const [activeTab, setActiveTab] = useState('chat');
+  const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [activeTab, setActiveTab] = useState('chat');
+  const [copiedCode, setCopiedCode] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
 
-  const loadRoom = useCallback(async () => {
+  const copyRoomCode = () => {
+    if (!room?.code) return;
+    navigator.clipboard.writeText(room.code);
+    setCopiedCode(true);
+    setTimeout(() => setCopiedCode(false), 2000);
+  };
+
+  const copyInviteLink = () => {
+    const inviteLink = `${window.location.origin}/room/${roomId}`;
+    navigator.clipboard.writeText(inviteLink);
+    setCopiedLink(true);
+    setTimeout(() => setCopiedLink(false), 2000);
+  };
+
+  const fetchRoomData = async (showLoading = true) => {
     try {
-      setLoading(true);
-      const data = await roomsApi.getDetail(roomId);
-      setRoom(data.data);
+      if (showLoading) setLoading(true);
+      const res = await roomsApi.getById(roomId);
+      setRoom(res.data);
+      setMembers(res.data.members || []);
       setError(null);
     } catch (err) {
-      setError(err.message);
-      console.error('Failed to load room:', err);
+      setError(err.message || 'Failed to load room');
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
+  };
+
+  useEffect(() => {
+    if (!roomId) return;
+    fetchRoomData();
   }, [roomId]);
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      loadRoom();
-    }, 0);
-    return () => clearTimeout(timer);
-  }, [loadRoom]);
+    if (!socket || !roomId || !user) return;
 
-  useEffect(() => {
-    if (socket && connected && roomId && user) {
+    if (connected) {
       socket.emit('room:join', { roomId, userId: user._id });
     }
 
-    // Cleanup: emit room:leave when component unmounts (navigating away, tab close)
-    return () => {
-      if (socket && roomId && user) {
-        socket.emit('room:leave', { roomId, userId: user._id });
+    const handleMembersUpdated = (data) => {
+      if (data.roomId === roomId) {
+        setMembers(data.members || []);
       }
     };
-  }, [socket, connected, roomId, user]);
+
+    const handleRoomError = (err) => {
+      setError(err.message || 'Room error occurred');
+    };
+    
+    const handleForceLeave = () => {
+      alert('You have been removed from this room.');
+      navigate('/dashboard');
+    };
+
+    socket.on('room:members-updated', handleMembersUpdated);
+    socket.on('room:error', handleRoomError);
+    socket.on('room:force-leave', handleForceLeave);
+
+    return () => {
+      socket.emit('room:leave', { roomId, userId: user._id });
+      socket.off('room:members-updated', handleMembersUpdated);
+      socket.off('room:error', handleRoomError);
+      socket.off('room:force-leave', handleForceLeave);
+    };
+  }, [socket, roomId, user, connected, navigate]);
 
   const handleLeaveRoom = async () => {
-    if (!window.confirm('Are you sure you want to leave this study room?')) return;
+    if (!window.confirm('Are you sure you want to leave this room?')) return;
     try {
+      if (socket) {
+        socket.emit('room:leave', { roomId, userId: user._id });
+      }
       await roomsApi.leave(roomId);
-      socket?.emit('room:leave', { roomId, userId: user._id });
       navigate('/dashboard');
     } catch (err) {
       console.error('Failed to leave room:', err);
-      setError('Failed to leave room: ' + (err.message || 'Unknown error'));
+      navigate('/dashboard');
     }
   };
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <div className="text-center">
-          <div className="w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading room...</p>
+      <div className="room-shell" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh' }}>
+        <div style={{ textAlign: 'center' }}>
+          <div className="spinner" style={{ margin: '0 auto 1rem' }} />
+          <p style={{ color: 'var(--text-muted)' }}>Entering study room...</p>
         </div>
       </div>
     );
@@ -80,15 +119,13 @@ export const StudyRoom = () => {
 
   if (error || !room) {
     return (
-      <div className="max-w-7xl mx-auto px-4 py-8">
-        <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-center">
-          <p className="text-red-800 font-semibold">Failed to load room</p>
-          <p className="text-red-600 text-sm mt-2">{error}</p>
-          <button
-            onClick={() => navigate('/dashboard')}
-            className="mt-4 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg"
-          >
-            Back to Dashboard
+      <div className="room-shell">
+        <div className="empty-state glass-card" style={{ maxWidth: '400px', margin: '4rem auto' }}>
+          <ShieldAlert size={40} className="empty-state-icon" color="#ef4444" style={{ opacity: 1 }} />
+          <div className="empty-state-title" style={{ color: '#fca5a5' }}>Access Denied</div>
+          <div className="empty-state-sub">{error || 'Room not found'}</div>
+          <button className="btn btn-ghost" onClick={() => navigate('/dashboard')} style={{ marginTop: '1rem' }}>
+            <ArrowLeft size={16} /> Back to Dashboard
           </button>
         </div>
       </div>
@@ -96,93 +133,144 @@ export const StudyRoom = () => {
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 py-8">
-      {/* Header */}
-      <div className="mb-6 flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <button
-            onClick={() => navigate('/dashboard')}
-            className="p-2 hover:bg-gray-200 rounded-lg transition"
-          >
-            <ArrowLeft className="w-5 h-5 text-gray-600" />
+    <div className="room-shell animate-fade-in">
+      {/* ── Room Header ── */}
+      <div className="room-header">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <button className="room-back-btn" onClick={() => navigate('/dashboard')} title="Back to Dashboard">
+            <ArrowLeft size={16} />
           </button>
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">{room.name}</h1>
-            <p className="text-gray-600 mt-1">{room.description}</p>
+            <h1 className="room-title">{room.name}</h1>
+            <p className="room-desc">{room.description || 'No description provided'}</p>
           </div>
         </div>
-        <button
-          onClick={handleLeaveRoom}
-          className="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition"
-        >
-          Leave Room
-        </button>
+        
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.375rem' }}>
+            <span className={`chat-status-dot ${connected ? 'chat-status-live' : 'chat-status-offline'}`} />
+            <span style={{ fontSize: '0.75rem', fontWeight: 600, color: connected ? '#6ee7b7' : '#fca5a5' }}>
+              {connected ? 'CONNECTED' : 'DISCONNECTED'}
+            </span>
+          </div>
+          
+          <button className="btn btn-danger" onClick={handleLeaveRoom} style={{ padding: '0.5rem 1rem' }}>
+            <LogOut size={15} /> Leave Room
+          </button>
+        </div>
       </div>
 
-      {/* Main Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        {/* Left Sidebar - Timer */}
-        <div className="lg:col-span-1">
-          <StudyTimer roomId={roomId} duration={room.studyDuration} />
+      <div className="room-layout">
+        {/* ── Left Column (Timer & Members) ── */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <StudyTimer roomId={roomId} duration={room.studyDuration} isOwner={room?.createdBy === user?._id || room?.createdBy?._id === user?._id} />
+          <RoomMembers 
+            roomId={roomId} 
+            initialMembers={members} 
+            room={room} 
+            onRefresh={() => fetchRoomData(false)}
+          />
         </div>
 
-        {/* Center - Interactive Workspace */}
-        <div className="lg:col-span-2 flex flex-col space-y-4">
-          {/* Tab Selector */}
-          <div className="flex bg-gray-100 p-1.5 rounded-xl border border-gray-200">
-            {[
-              { id: 'chat', label: '💬 Chat' },
-              { id: 'ai', label: '🤖 Gemini AI' },
-              { id: 'webrtc', label: '📹 Call' },
-              { id: 'files', label: '📂 Shared Files' }
-            ].map(tab => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${
-                  activeTab === tab.id
-                    ? 'bg-white text-blue-600 shadow-sm'
-                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
-                }`}
-              >
-                {tab.label}
-              </button>
-            ))}
+        {/* ── Center Column (Main Workspace) ── */}
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          {/* Tabs */}
+          <div className="tab-pills">
+            <button className={`tab-pill ${activeTab === 'chat' ? 'active' : ''}`} onClick={() => setActiveTab('chat')}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.375rem' }}>
+                <MessageSquare size={14} /> Chat
+              </div>
+            </button>
+            <button className={`tab-pill ${activeTab === 'ai' ? 'active' : ''}`} onClick={() => setActiveTab('ai')}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.375rem' }}>
+                <Sparkles size={14} /> AI Assistant
+              </div>
+            </button>
+            <button className={`tab-pill ${activeTab === 'files' ? 'active' : ''}`} onClick={() => setActiveTab('files')}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.375rem' }}>
+                <FolderUp size={14} /> Files
+              </div>
+            </button>
+            <button className={`tab-pill ${activeTab === 'video' ? 'active' : ''}`} onClick={() => setActiveTab('video')}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.375rem' }}>
+                <Video size={14} /> Video Call
+              </div>
+            </button>
           </div>
 
-          {/* Active Tab Panel */}
-          <div className="flex-grow">
+          {/* Active Panel */}
+          <div className="panel-card">
             {activeTab === 'chat' && <ChatPanel roomId={roomId} />}
             {activeTab === 'ai' && <AIAssistant roomId={roomId} />}
-            {activeTab === 'webrtc' && <WebRTCPanel roomId={roomId} userId={user._id} />}
             {activeTab === 'files' && <FileSharingPanel roomId={roomId} />}
+            {activeTab === 'video' && <WebRTCPanel roomId={roomId} userId={user._id} />}
           </div>
         </div>
 
-        {/* Right Sidebar - Members */}
-        <div className="lg:col-span-1">
-          <RoomMembers roomId={roomId} initialMembers={room.members} room={room} onRefresh={loadRoom} />
-        </div>
-      </div>
+        {/* ── Right Column (Room Details Sidebar) ── */}
+        <div className="glass-card" style={{ padding: '1.25rem', height: 'fit-content' }}>
+          <h3 style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '1rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            Room Info
+          </h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <div>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '0.2rem' }}>SUBJECT</div>
+              <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 600 }}>
+                {room.subject || 'General Study'}
+              </div>
+            </div>
+            
+            {room.code && (
+              <div>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '0.2rem' }}>ROOM CODE</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                  <code style={{ fontSize: '0.85rem', padding: '0.2rem 0.5rem', background: 'rgba(255,255,255,0.05)', borderRadius: '4px', color: '#818cf8', fontWeight: 'bold', letterSpacing: '0.05em' }}>
+                    {room.code}
+                  </code>
+                  <button 
+                    onClick={copyRoomCode} 
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)', display: 'flex', alignItems: 'center' }}
+                    title="Copy Room Code"
+                  >
+                    {copiedCode ? <Check size={14} color="#10b981" /> : <Copy size={14} />}
+                  </button>
+                </div>
+              </div>
+            )}
 
-      {/* Room Info Footer */}
-      <div className="mt-8 bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div>
-            <p className="text-sm text-blue-600 font-semibold">Created by</p>
-            <p className="text-gray-900">{room.createdBy?.username}</p>
-          </div>
-          <div>
-            <p className="text-sm text-blue-600 font-semibold">Members</p>
-            <p className="text-gray-900">{room.members?.length || 0}</p>
-          </div>
-          <div>
-            <p className="text-sm text-blue-600 font-semibold">Duration</p>
-            <p className="text-gray-900">{room.studyDuration} minutes</p>
-          </div>
-          <div>
-            <p className="text-sm text-blue-600 font-semibold">Status</p>
-            <p className="text-gray-900 capitalize">{room.status}</p>
+            <div>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '0.2rem' }}>INVITE LINK</div>
+              <button 
+                onClick={copyInviteLink} 
+                className="btn btn-ghost" 
+                style={{ padding: '0.4rem 0.75rem', fontSize: '0.75rem', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.375rem', borderColor: 'rgba(255,255,255,0.1)' }}
+              >
+                {copiedLink ? (
+                  <><Check size={12} color="#10b981" /> Copied Link</>
+                ) : (
+                  <><Copy size={12} /> Copy Invite Link</>
+                )}
+              </button>
+            </div>
+
+            <div>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '0.2rem' }}>CREATED BY</div>
+              <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                {room.createdBy?.username || 'Unknown'}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '0.2rem' }}>PRIVACY</div>
+              <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                {room.isPrivate ? 'Private (Invite only)' : 'Public Room'}
+              </div>
+            </div>
+            <div>
+              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', marginBottom: '0.2rem' }}>STATUS</div>
+              <div style={{ display: 'inline-block', padding: '0.2rem 0.5rem', background: 'rgba(16,185,129,0.1)', color: '#6ee7b7', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 600 }}>
+                {room.status || 'active'}
+              </div>
+            </div>
           </div>
         </div>
       </div>
