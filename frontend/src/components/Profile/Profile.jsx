@@ -108,8 +108,12 @@ export const Profile = () => {
     try {
       const res = await usersApi.updateProfile({
         username: editUsername.trim(),
+        fullName: editFullName.trim(),
         bio: editBio.trim(),
         avatar: editAvatar.trim(),
+        country: editCountry.trim(),
+        state: editState.trim(),
+        city: editCity.trim(),
         subjects: editSubjects
       });
 
@@ -120,7 +124,17 @@ export const Profile = () => {
       // Update local storage for own user
       if (isOwnProfile) {
         const localUser = JSON.parse(localStorage.getItem('user') || '{}');
-        const updated = { ...localUser, username: editUsername.trim(), bio: editBio.trim(), avatar: editAvatar.trim(), subjects: editSubjects };
+        const updated = { 
+          ...localUser, 
+          username: editUsername.trim(), 
+          fullName: editFullName.trim(),
+          bio: editBio.trim(), 
+          avatar: editAvatar.trim(), 
+          country: editCountry.trim(),
+          state: editState.trim(),
+          city: editCity.trim(),
+          subjects: editSubjects 
+        };
         localStorage.setItem('user', JSON.stringify(updated));
         
         // Notify socket connection of name update
@@ -226,14 +240,29 @@ export const Profile = () => {
           </div>
 
           <div>
-            <h2 style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '0.25rem' }}>
-              {profileUser.username}
-            </h2>
+            {profileUser.fullName && (
+              <h2 style={{ fontSize: '1.4rem', fontWeight: 700, color: 'white', marginBottom: '0.1rem' }}>
+                {profileUser.fullName}
+              </h2>
+            )}
+            <h3 style={{ fontSize: '1.0rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '0.25rem' }}>
+              @{profileUser.username}
+            </h3>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.35rem', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
               <Mail size={13} /> {profileUser.email}
             </div>
+
+            {(profileUser.city || profileUser.state || profileUser.country) && (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.25rem', color: 'var(--text-secondary)', fontSize: '0.8rem', marginTop: '0.5rem' }}>
+                <MapPin size={12} />
+                <span>
+                  {[profileUser.city, profileUser.state, profileUser.country].filter(Boolean).join(', ')}
+                </span>
+              </div>
+            )}
+
             {profileUser.isOnline && (
-              <span className="pill-badge-green" style={{ fontSize: '0.65rem', display: 'inline-block', marginTop: '0.5rem' }}>
+              <span className="pill-badge-green" style={{ fontSize: '0.65rem', display: 'inline-block', marginTop: '0.75rem' }}>
                 Online Now
               </span>
             )}
@@ -286,15 +315,60 @@ export const Profile = () => {
               
               <form onSubmit={handleUpdateProfile} style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem', marginTop: '1.5rem' }}>
                 
-                <div>
-                  <label className="auth-label">Username</label>
-                  <input 
-                    type="text" 
-                    className="input-dark" 
-                    value={editUsername} 
-                    onChange={(e) => setEditUsername(e.target.value)} 
-                    required 
-                  />
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                  <div>
+                    <label className="auth-label">Full Name</label>
+                    <input 
+                      type="text" 
+                      className="input-dark" 
+                      value={editFullName} 
+                      onChange={(e) => setEditFullName(e.target.value)} 
+                      placeholder="Your real name"
+                    />
+                  </div>
+                  <div>
+                    <label className="auth-label">Username</label>
+                    <input 
+                      type="text" 
+                      className="input-dark" 
+                      value={editUsername} 
+                      onChange={(e) => setEditUsername(e.target.value)} 
+                      required 
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.75rem' }}>
+                  <div>
+                    <label className="auth-label">City</label>
+                    <input 
+                      type="text" 
+                      className="input-dark" 
+                      value={editCity} 
+                      onChange={(e) => setEditCity(e.target.value)} 
+                      placeholder="Coimbatore"
+                    />
+                  </div>
+                  <div>
+                    <label className="auth-label">State/Province</label>
+                    <input 
+                      type="text" 
+                      className="input-dark" 
+                      value={editState} 
+                      onChange={(e) => setEditState(e.target.value)} 
+                      placeholder="Tamil Nadu"
+                    />
+                  </div>
+                  <div>
+                    <label className="auth-label">Country</label>
+                    <input 
+                      type="text" 
+                      className="input-dark" 
+                      value={editCountry} 
+                      onChange={(e) => setEditCountry(e.target.value)} 
+                      placeholder="India"
+                    />
+                  </div>
                 </div>
 
                 <div>

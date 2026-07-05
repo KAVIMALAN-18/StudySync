@@ -21,7 +21,6 @@ export const WebRTCPanel = ({ roomId, userId }) => {
     return () => {
       leaveCall();
     };
-    // eslint-disable-next-line
   }, []);
 
   // Socket event listeners for WebRTC

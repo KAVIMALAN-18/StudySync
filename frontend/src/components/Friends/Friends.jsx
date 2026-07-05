@@ -256,8 +256,15 @@ export const Friends = () => {
                               <span className="member-online-dot" style={{ bottom: '2px', right: '2px', width: '10px', height: '10px', background: '#10b981', border: '2px solid #0b0e14' }} />
                             </div>
                             <div>
-                              <div style={{ fontWeight: 600, color: 'var(--text-primary)' }} className="hover-underline">{friend.username}</div>
+                              <div style={{ fontWeight: 600, color: 'var(--text-primary)' }} className="hover-underline">
+                                {friend.fullName ? `${friend.fullName} (@${friend.username})` : friend.username}
+                              </div>
                               <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{friend.bio || 'Studying hard! 🚀'}</div>
+                              {(friend.city || friend.country) && (
+                                <div style={{ fontSize: '0.68rem', color: '#a5b4fc', marginTop: '0.15rem' }}>
+                                  📍 {[friend.city, friend.country].filter(Boolean).join(', ')}
+                                </div>
+                              )}
                             </div>
                           </Link>
                         </div>
@@ -308,10 +315,17 @@ export const Friends = () => {
                               )}
                             </div>
                             <div>
-                              <div style={{ fontWeight: 600, color: 'var(--text-primary)' }} className="hover-underline">{friend.username}</div>
+                              <div style={{ fontWeight: 600, color: 'var(--text-primary)' }} className="hover-underline">
+                                {friend.fullName ? `${friend.fullName} (@${friend.username})` : friend.username}
+                              </div>
                               <div style={{ fontSize: '0.75rem', color: friend.isOnline ? '#6ee7b7' : 'var(--text-muted)' }}>
                                 {friend.isOnline ? 'Online now' : 'Offline'}
                               </div>
+                              {(friend.city || friend.country) && (
+                                <div style={{ fontSize: '0.68rem', color: '#a5b4fc', marginTop: '0.15rem' }}>
+                                  📍 {[friend.city, friend.country].filter(Boolean).join(', ')}
+                                </div>
+                              )}
                             </div>
                           </Link>
                         </div>
@@ -413,8 +427,15 @@ export const Friends = () => {
                                 {(result.username?.[0] || 'U').toUpperCase()}
                               </div>
                               <div>
-                                <div style={{ fontWeight: 600, color: 'var(--text-primary)' }} className="hover-underline">{result.username}</div>
+                                <div style={{ fontWeight: 600, color: 'var(--text-primary)' }} className="hover-underline">
+                                  {result.fullName ? `${result.fullName} (@${result.username})` : result.username}
+                                </div>
                                 <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{result.bio || 'Ready to study together! ✍️'}</div>
+                                {(result.city || result.country) && (
+                                  <div style={{ fontSize: '0.68rem', color: '#a5b4fc', marginTop: '0.15rem' }}>
+                                    📍 {[result.city, result.country].filter(Boolean).join(', ')}
+                                  </div>
+                                )}
                               </div>
                             </Link>
                           </div>

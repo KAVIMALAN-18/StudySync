@@ -42,7 +42,6 @@ export const StudyTimer = ({ roomId, duration = 25, isOwner = false }) => {
     if (data.mode) setMode(data.mode);
     if (data.initialTimeLeft) setInitialTime(data.initialTimeLeft);
 
-    // Flash "completed" badge when mode just switched after completion
     if (data.action === 'mode-switched') {
       setJustCompleted(true);
       setTimeout(() => setJustCompleted(false), 4000);
@@ -50,7 +49,9 @@ export const StudyTimer = ({ roomId, duration = 25, isOwner = false }) => {
       try {
         const audio = new Audio('/bell.mp3');
         audio.play().catch(() => {});
-      } catch (_) {}
+      } catch (err) {
+        console.warn('Could not play focus switch audio bell:', err);
+      }
     }
   }, [roomId]);
 

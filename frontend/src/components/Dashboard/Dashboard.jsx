@@ -63,6 +63,28 @@ export const Dashboard = () => {
   const quoteIndex = (user?.username?.length || 0) % MOTIVATIONAL_QUOTES.length;
   const todayQuote = MOTIVATIONAL_QUOTES[quoteIndex];
 
+  const loadData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const [allRooms, userRooms, userStats, userHistory] = await Promise.all([
+        roomsApi.getAll(),
+        roomsApi.getMyRooms(),
+        sessionsApi.getStats(),
+        sessionsApi.getHistory()
+      ]);
+      setPublicRooms(allRooms.data || []);
+      setMyRooms(userRooms.data || []);
+      setStats(userStats.data || { totalFocusMinutes: 0, totalBreakMinutes: 0, totalPomodoros: 0, streak: 0 });
+      setHistory(userHistory.data || []);
+    } catch (err) {
+      setError(err.message);
+      console.error('Failed to load data:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
     loadData();
     if (socket) {
@@ -85,28 +107,6 @@ export const Dashboard = () => {
       };
     }
   }, [user._id, user.username, user.avatar, socket]);
-
-  const loadData = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      const [allRooms, userRooms, userStats, userHistory] = await Promise.all([
-        roomsApi.getAll(),
-        roomsApi.getMyRooms(),
-        sessionsApi.getStats(),
-        sessionsApi.getHistory()
-      ]);
-      setPublicRooms(allRooms.data || []);
-      setMyRooms(userRooms.data || []);
-      setStats(userStats.data || { totalFocusMinutes: 0, totalBreakMinutes: 0, totalPomodoros: 0, streak: 0 });
-      setHistory(userHistory.data || []);
-    } catch (err) {
-      setError(err.message);
-      console.error('Failed to load data:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleCreateRoom = async (e) => {
     e.preventDefault();
@@ -231,7 +231,12 @@ export const Dashboard = () => {
       {/* ── Welcome and Motivate section ── */}
       <div className="dashboard-header" style={{ marginBottom: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1.5rem' }}>
         <div>
-          <h1 className="dashboard-greeting" style={{ fontSize: '2rem' }}>Welcome back, <span>{user.username}</span>!</h1>
+          <h1 className="dashboard-greeting" style={{ fontSize: '2rem' }}>Welcome back, <span>{user.fullName || user.username}</span>!</h1>
+          {(user.city || user.country) && (
+            <div style={{ fontSize: '0.82rem', color: '#a5b4fc', marginTop: '0.2rem', marginBottom: '0.4rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
+              <span>📍 Studying from {[user.city, user.country].filter(Boolean).join(', ')}</span>
+            </div>
+          )}
           <p className="dashboard-sub" style={{ fontSize: '0.95rem' }}>
             "{todayQuote.quote}" — <span style={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>{todayQuote.author}</span>
           </p>
