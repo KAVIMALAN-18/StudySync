@@ -104,7 +104,14 @@ const startRoomTimerInterval = (io, roomId) => {
         const focusMinutes = timer.mode === 'focus' ? 1 : 0;
         const breakMinutes = timer.mode === 'break' ? 1 : 0;
         for (const userId of userIds) {
-          recordSession(userId, roomId, { focusMinutes, breakMinutes }).catch(err => {
+          recordSession(userId, roomId, { focusMinutes, breakMinutes }).then(() => {
+            const userSocketsList = userSockets.get(userId);
+            if (userSocketsList) {
+              for (const socketId of userSocketsList) {
+                io.to(socketId).emit('stats:updated');
+              }
+            }
+          }).catch(err => {
             console.error(`[Session] Failed to record minutes for user ${userId}:`, err.message);
           });
         }
@@ -122,7 +129,14 @@ const startRoomTimerInterval = (io, roomId) => {
           // Increment completed Pomodoro cycles for all users in the room
           const userIds = getRoomUserIds(io, roomId);
           for (const userId of userIds) {
-            recordSession(userId, roomId, { incrementPomodoro: true }).catch(err => {
+            recordSession(userId, roomId, { incrementPomodoro: true }).then(() => {
+              const userSocketsList = userSockets.get(userId);
+              if (userSocketsList) {
+                for (const socketId of userSocketsList) {
+                  io.to(socketId).emit('stats:updated');
+                }
+              }
+            }).catch(err => {
               console.error(`[Session] Failed to record Pomodoro for user ${userId}:`, err.message);
             });
           }
@@ -400,25 +414,23 @@ export const setupSocketEvents = (io) => {
 
     socket.on('timer:start', async (data) => {
       try {
-        const { roomId, duration, mode } = data;
+        const { roomId } = data;
 
         let timer = roomTimers.get(roomId);
         if (!timer) {
-          timer = {
-            timeLeft: duration,
-            initialTimeLeft: duration,
-            status: 'running',
-            mode: mode || 'focus',
-            lastUpdated: new Date()
-          };
-          roomTimers.set(roomId, timer);
-        } else {
-          timer.status = 'running';
-          timer.timeLeft = duration;
-          timer.initialTimeLeft = duration;
-          timer.mode = mode || timer.mode;
-          timer.lastUpdated = new Date();
+          // Lazily initialize with room default
+          let defaultDuration = 30 * 60;
+          try {
+            const roomObj = await Room.findById(roomId).lean();
+            if (roomObj?.studyDuration) defaultDuration = roomObj.studyDuration * 60;
+          } catch (_) {}
+          initializeRoomTimer(roomId, defaultDuration, 'focus');
+          timer = roomTimers.get(roomId);
         }
+
+        // Resume from current timeLeft (do NOT reset)
+        timer.status = 'running';
+        timer.lastUpdated = new Date();
 
         startRoomTimerInterval(io, roomId);
 
@@ -428,9 +440,9 @@ export const setupSocketEvents = (io) => {
           action: 'started'
         });
 
-        await sendRoomNotification(io, roomId, `${timer.mode === 'focus' ? 'Focus' : 'Break'} session started.`);
+        await sendRoomNotification(io, roomId, `${timer.mode === 'focus' ? '🎯 Focus' : '☕ Break'} session started!`);
 
-        console.log(`[Timer] Started in room ${roomId}: ${duration}s, mode: ${timer.mode}`);
+        console.log(`[Timer] Started/Resumed in room ${roomId}, mode: ${timer.mode}, timeLeft: ${timer.timeLeft}s`);
       } catch (error) {
         console.error('Error in timer:start:', error);
       }
@@ -465,6 +477,20 @@ export const setupSocketEvents = (io) => {
       }
     });
 
+    // Client asks for current timer state (on reconnect or mount)
+    socket.on('timer:request-state', (data) => {
+      try {
+        const { roomId } = data;
+        if (!roomId) return;
+        const timerState = getTimerState(roomId);
+        if (timerState) {
+          socket.emit('timer:sync', { roomId, ...timerState });
+        }
+      } catch (error) {
+        console.error('Error in timer:request-state:', error);
+      }
+    });
+
     socket.on('timer:reset', async (data) => {
       try {
         const { roomId, duration, mode } = data;
@@ -492,7 +518,7 @@ export const setupSocketEvents = (io) => {
           action: 'reset'
         });
 
-        await sendRoomNotification(io, roomId, 'Study timer reset.');
+        await sendRoomNotification(io, roomId, '⏱️ Timer reset.');
 
         console.log(`[Timer] Reset in room ${roomId} to ${targetDuration}s, mode: ${targetMode}`);
       } catch (error) {
@@ -573,10 +599,11 @@ export const setupSocketEvents = (io) => {
 
     socket.on('room:invite', async (data) => {
       try {
-        const { roomId, recipientUserId } = data;
+        const { roomId, recipientUserId, recipientId, senderName } = data;
+        const targetUserId = recipientUserId || recipientId;
 
         // Since userSocketMap is updated to support sets, get the first socket or loop over them
-        const recipientSockets = userSockets.get(recipientUserId);
+        const recipientSockets = userSockets.get(targetUserId);
 
         if (recipientSockets) {
           const room = await Room.findById(roomId)
@@ -586,11 +613,12 @@ export const setupSocketEvents = (io) => {
           for (const socketId of recipientSockets) {
             io.to(socketId).emit('room:invite-received', {
               roomId,
-              room
+              room,
+              senderName: senderName || 'Someone'
             });
           }
 
-          console.log(`Invite sent to user ${recipientUserId} for room ${roomId}`);
+          console.log(`Invite sent to user ${targetUserId} for room ${roomId}`);
         }
       } catch (error) {
         console.error('Error in room:invite:', error);
@@ -606,6 +634,45 @@ export const setupSocketEvents = (io) => {
       console.log(`[WebRTC] User ${userId} (${socket.id}) joined video call in room ${roomId}`);
     });
 
+    socket.on('webrtc:offer', (data) => {
+      const { target, caller, sdp } = data;
+      const targetSockets = userSockets.get(target);
+      if (targetSockets) {
+        for (const socketId of targetSockets) {
+          io.to(socketId).emit('webrtc:offer', {
+            caller,
+            sdp
+          });
+        }
+      }
+    });
+
+    socket.on('webrtc:answer', (data) => {
+      const { target, sdp } = data;
+      const targetSockets = userSockets.get(target);
+      if (targetSockets) {
+        for (const socketId of targetSockets) {
+          io.to(socketId).emit('webrtc:answer', {
+            sender: socket.userId,
+            sdp
+          });
+        }
+      }
+    });
+
+    socket.on('webrtc:ice-candidate', (data) => {
+      const { target, candidate } = data;
+      const targetSockets = userSockets.get(target);
+      if (targetSockets) {
+        for (const socketId of targetSockets) {
+          io.to(socketId).emit('webrtc:ice-candidate', {
+            sender: socket.userId,
+            candidate
+          });
+        }
+      }
+    });
+
     socket.on('webrtc:signal', (data) => {
       const { targetSocketId, signal } = data;
       io.to(targetSocketId).emit('webrtc:signal', {
@@ -617,9 +684,10 @@ export const setupSocketEvents = (io) => {
     socket.on('webrtc:leave', (data) => {
       const { roomId } = data;
       socket.to(`room:${roomId}`).emit('webrtc:user-left', {
-        socketId: socket.id
+        socketId: socket.id,
+        userId: socket.userId
       });
-      console.log(`[WebRTC] User ${socket.id} left video call in room ${roomId}`);
+      console.log(`[WebRTC] User ${socket.userId} (${socket.id}) left video call in room ${roomId}`);
     });
 
     socket.on('disconnect', async () => {

@@ -3,21 +3,42 @@ import { generateToken } from '../utils/jwt.js';
 
 export const register = async (req, res) => {
   try {
-    const { username, email, password } = req.body;
+    const { username, email, password, fullName, country, state, city, subjects } = req.body;
 
     if (!username || !email || !password) {
-      return res.status(400).json({ error: 'All fields are required' });
+      return res.status(400).json({ error: 'Username, email, and password are required' });
+    }
+
+    if (username.trim().length < 3) {
+      return res.status(400).json({ error: 'Username must be at least 3 characters' });
+    }
+
+    if (password.length < 6) {
+      return res.status(400).json({ error: 'Password must be at least 6 characters' });
     }
 
     const existingUser = await User.findOne({
-      $or: [{ email }, { username }]
+      $or: [{ email: email.toLowerCase() }, { username }]
     });
 
     if (existingUser) {
-      return res.status(400).json({ error: 'Email or username already exists' });
+      if (existingUser.email === email.toLowerCase()) {
+        return res.status(400).json({ error: 'An account with this email already exists' });
+      }
+      return res.status(400).json({ error: 'This username is already taken' });
     }
 
-    const user = new User({ username, email, password });
+    const user = new User({
+      username,
+      email,
+      password,
+      fullName: fullName || '',
+      country: country || '',
+      state: state || '',
+      city: city || '',
+      subjects: subjects || [],
+    });
+
     await user.save();
 
     const token = generateToken(user._id);
@@ -28,7 +49,14 @@ export const register = async (req, res) => {
       user: {
         _id: user._id,
         username: user.username,
-        email: user.email
+        email: user.email,
+        fullName: user.fullName,
+        country: user.country,
+        state: user.state,
+        city: user.city,
+        subjects: user.subjects,
+        avatar: user.avatar,
+        bio: user.bio,
       }
     });
   } catch (error) {
@@ -44,7 +72,7 @@ export const login = async (req, res) => {
       return res.status(400).json({ error: 'Email and password are required' });
     }
 
-    const user = await User.findOne({ email }).select('+password');
+    const user = await User.findOne({ email: email.toLowerCase() }).select('+password');
 
     if (!user) {
       return res.status(400).json({ error: 'Invalid email or password' });
@@ -65,7 +93,14 @@ export const login = async (req, res) => {
         _id: user._id,
         username: user.username,
         email: user.email,
-        avatar: user.avatar
+        fullName: user.fullName || '',
+        country: user.country || '',
+        state: user.state || '',
+        city: user.city || '',
+        subjects: user.subjects || [],
+        avatar: user.avatar,
+        bio: user.bio || '',
+        isOnline: user.isOnline,
       }
     });
   } catch (error) {

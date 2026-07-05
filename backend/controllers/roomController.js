@@ -5,20 +5,31 @@ import { inMemory } from '../utils/inMemoryStore.js';
 
 export const createRoom = async (req, res) => {
   try {
-    const { name, description, studyDuration, isPrivate, capacity } = req.body;
+    const { name, description, subject, studyDuration, isPrivate, capacity } = req.body;
     const userId = req.userId;
 
     if (!name) {
       return res.status(400).json({ error: 'Room name is required' });
     }
 
+    // Generate unique 6-char room code
+    let code;
+    let isUnique = false;
+    while (!isUnique) {
+      code = Math.random().toString(36).substring(2, 8).toUpperCase();
+      const existing = await Room.findOne({ code });
+      if (!existing) isUnique = true;
+    }
+
     const room = new Room({
       name,
       description,
+      subject: subject || 'General Study',
+      code,
       createdBy: userId,
       members: [userId],
       studyDuration,
-      isPrivate,
+      isPrivate: isPrivate || false,
       capacity: capacity || 10,
       startTime: new Date()
     });
@@ -201,6 +212,60 @@ export const joinRoom = async (req, res) => {
   }
 };
 
+export const joinRoomByCode = async (req, res) => {
+  try {
+    const { code } = req.body;
+    const userId = req.userId;
+
+    if (!code) {
+      return res.status(400).json({ error: 'Room code is required' });
+    }
+
+    const room = await Room.findOne({ code: code.toUpperCase() });
+
+    if (!room) {
+      return res.status(404).json({ error: 'Room not found with this code' });
+    }
+
+    if (room.members.includes(userId)) {
+      return res.json({
+        message: 'Already in this room',
+        data: room
+      });
+    }
+
+    if (room.isLocked) {
+      return res.status(403).json({ error: 'Room is locked' });
+    }
+
+    if (room.members.length >= room.capacity) {
+      return res.status(400).json({ error: 'Room is full' });
+    }
+
+    room.members.push(userId);
+    await room.save();
+
+    await room.populate('createdBy', 'username avatar');
+    await room.populate('members', 'username avatar');
+
+    const user = await User.findById(userId);
+    await Message.create({
+      roomId: room._id,
+      senderId: userId,
+      senderName: user.username,
+      content: `${user.username} joined the room`,
+      type: 'notification'
+    });
+
+    res.json({
+      message: 'Joined room successfully',
+      data: room
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
 export const leaveRoom = async (req, res) => {
   try {
     const { roomId } = req.params;
@@ -347,6 +412,61 @@ export const toggleLock = async (req, res) => {
     await room.save();
 
     res.json({ message: `Room ${room.isLocked ? 'locked' : 'unlocked'} successfully`, data: room });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+export const demoteMember = async (req, res) => {
+  try {
+    const { roomId } = req.params;
+    const { targetUserId } = req.body;
+    const userId = req.userId;
+
+    const room = await Room.findById(roomId);
+    if (!room) return res.status(404).json({ error: 'Room not found' });
+
+    if (room.createdBy.toString() !== userId) {
+      return res.status(403).json({ error: 'Only the room owner can demote admins' });
+    }
+
+    if (!room.admins.map(a => a.toString()).includes(targetUserId)) {
+      return res.status(400).json({ error: 'User is not an admin' });
+    }
+
+    room.admins = room.admins.filter(a => a.toString() !== targetUserId);
+    await room.save();
+
+    res.json({ message: 'User demoted from admin successfully', data: room });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+export const transferOwnership = async (req, res) => {
+  try {
+    const { roomId } = req.params;
+    const { targetUserId } = req.body;
+    const userId = req.userId;
+
+    const room = await Room.findById(roomId);
+    if (!room) return res.status(404).json({ error: 'Room not found' });
+
+    if (room.createdBy.toString() !== userId) {
+      return res.status(403).json({ error: 'Only the room owner can transfer ownership' });
+    }
+
+    if (!room.members.map(m => m.toString()).includes(targetUserId)) {
+      return res.status(400).json({ error: 'Target user must be a member of the room' });
+    }
+
+    room.createdBy = targetUserId;
+    if (!room.admins.map(a => a.toString()).includes(userId)) {
+      room.admins.push(userId);
+    }
+    await room.save();
+
+    res.json({ message: 'Room ownership transferred successfully', data: room });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

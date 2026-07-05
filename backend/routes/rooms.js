@@ -8,6 +8,7 @@ import {
   updateRoom,
   deleteRoom,
   joinRoom,
+  joinRoomByCode,
   leaveRoom,
   getRoomMessages,
   promoteMember,
@@ -23,6 +24,7 @@ router.get('/my-rooms', auth, getMyRooms);
 router.get('/:roomId', getRoomDetail);
 router.patch('/:roomId', auth, updateRoom);
 router.delete('/:roomId', auth, deleteRoom);
+router.post('/join-by-code', auth, joinRoomByCode);
 router.post('/:roomId/join', auth, joinRoom);
 router.post('/:roomId/leave', auth, leaveRoom);
 router.get('/:roomId/messages', getRoomMessages);

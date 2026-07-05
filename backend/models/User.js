@@ -22,11 +22,28 @@ const userSchema = new mongoose.Schema(
       minlength: 6,
       select: false
     },
+    fullName: {
+      type: String,
+      default: '',
+      trim: true
+    },
     avatar: {
       type: String,
       default: null
     },
     bio: {
+      type: String,
+      default: ''
+    },
+    country: {
+      type: String,
+      default: ''
+    },
+    state: {
+      type: String,
+      default: ''
+    },
+    city: {
       type: String,
       default: ''
     },
@@ -46,6 +63,9 @@ const userSchema = new mongoose.Schema(
     blockedUsers: [{
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User'
+    }],
+    subjects: [{
+      type: String
     }]
   },
   { timestamps: true }

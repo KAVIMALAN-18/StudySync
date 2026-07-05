@@ -39,9 +39,26 @@ export const askGemini = async (req, res) => {
           if (reply) {
             return res.json({ reply });
           }
+        } else {
+          const errData = await response.json().catch(() => ({}));
+          const errMsg = errData.error?.message || `Gemini API returned status ${response.status}`;
+          
+          let friendlyMsg = 'AI Assistant is temporarily unavailable.';
+          if (response.status === 400 && errMsg.includes('API key')) {
+            friendlyMsg = 'Invalid Gemini API key. Please verify the environment configuration.';
+          } else if (response.status === 429) {
+            friendlyMsg = 'Gemini API rate limit exceeded. Please try again in a few moments.';
+          } else if (response.status === 403) {
+            friendlyMsg = 'Access to Gemini API is forbidden. Check authorization settings.';
+          } else {
+            friendlyMsg = `Gemini API Error: ${errMsg}`;
+          }
+          
+          return res.status(response.status).json({ error: friendlyMsg });
         }
       } catch (geminiErr) {
-        console.warn(`[AIController] Real Gemini API call failed, using smart fallback: ${geminiErr.message}`);
+        console.error(`[AIController] Gemini API network/fetch error:`, geminiErr);
+        return res.status(503).json({ error: 'Network error. Could not connect to the Gemini API service.' });
       }
     }
 

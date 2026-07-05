@@ -11,6 +11,15 @@ const roomSchema = new mongoose.Schema(
       type: String,
       default: ''
     },
+    subject: {
+      type: String,
+      default: 'General Study'
+    },
+    code: {
+      type: String,
+      unique: true,
+      sparse: true
+    },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',

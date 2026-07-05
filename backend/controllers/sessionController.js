@@ -41,7 +41,7 @@ export const recordSession = async (userId, roomId, { focusMinutes = 0, breakMin
 // ─── REST API handlers ────────────────────────────────────────────────────────
 
 export const getSessionHistory = async (req, res) => {
-  const userId = req.userId;
+  const userId = req.query.userId || req.userId;
   try {
     const sessions = await StudySession.find({ userId })
       .sort({ sessionDate: -1 })
@@ -58,7 +58,7 @@ export const getSessionHistory = async (req, res) => {
 };
 
 export const getSessionStats = async (req, res) => {
-  const userId = req.userId;
+  const userId = req.query.userId || req.userId;
 
   // Try DB first
   try {
