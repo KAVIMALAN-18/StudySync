@@ -82,10 +82,10 @@ Here is a quick quiz to test your understanding:
    - C) FTP
    - *Answer: B*
 
-3. **Question 3**: In WebRTC, what is the role of STUN/TURN servers?
-   - A) File storage
-   - B) Translating IP addresses and relaying media packets around NAT/firewalls
-   - C) Password hashing
+3. **Question 3**: What does the HTTP status code 403 Forbidden indicate?
+   - A) The requested resource could not be found
+   - B) The user is authenticated but does not have access permissions
+   - C) The server is temporarily down for maintenance
    - *Answer: B*
 
 Keep studying and try answering these with your study group!`;

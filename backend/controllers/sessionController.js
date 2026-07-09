@@ -41,12 +41,13 @@ export const recordSession = async (userId, roomId, { focusMinutes = 0, breakMin
 // ─── REST API handlers ────────────────────────────────────────────────────────
 
 export const getSessionHistory = async (req, res) => {
-  const userId = req.query.userId || req.userId;
+  // Always prioritize JWT-authenticated userId for data isolation
+  const userId = req.userId || req.query.userId;
   try {
     const sessions = await StudySession.find({ userId })
       .sort({ sessionDate: -1 })
       .limit(30)
-      .populate('roomId', 'name')
+      .populate('roomId', 'name subject') // Include subject for rich display
       .lean();
 
     return res.json({ data: sessions });
@@ -57,8 +58,72 @@ export const getSessionHistory = async (req, res) => {
   }
 };
 
+export const getWeeklyProgress = async (req, res) => {
+  // Serve only the requesting user's weekly data
+  const userId = req.userId || req.query.userId;
+  try {
+    let userObjId;
+    try {
+      userObjId = new mongoose.Types.ObjectId(userId);
+    } catch (e) {
+      return res.status(400).json({ error: 'Invalid user ID' });
+    }
+
+    // Find Monday of the current week
+    const today = new Date();
+    const dayOfWeek = today.getDay(); // 0=Sun, 1=Mon...
+    const distanceToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+    const monday = new Date(today);
+    monday.setDate(today.getDate() + distanceToMonday);
+    monday.setHours(0, 0, 0, 0);
+
+    const sunday = new Date(monday);
+    sunday.setDate(monday.getDate() + 6);
+    sunday.setHours(23, 59, 59, 999);
+
+    const sessions = await StudySession.find({
+      userId: userObjId,
+      sessionDate: { $gte: monday, $lte: sunday }
+    }).lean();
+
+    // Build 7-day array Mon-Sun
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const weekData = [];
+
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(monday);
+      d.setDate(monday.getDate() + i);
+      d.setHours(0, 0, 0, 0);
+
+      const dayFocusMinutes = sessions
+        .filter(s => {
+          const sd = new Date(s.sessionDate);
+          sd.setHours(0, 0, 0, 0);
+          return sd.getTime() === d.getTime();
+        })
+        .reduce((sum, s) => sum + (s.focusMinutes || 0), 0);
+
+      const dateNum = String(d.getDate()).padStart(2, '0');
+      weekData.push({
+        label: `${dayNames[d.getDay()]} ${dateNum} ${monthNames[d.getMonth()]}`,
+        day: dayNames[d.getDay()],
+        date: d.toISOString().split('T')[0],
+        minutes: dayFocusMinutes,
+        isToday: d.toDateString() === today.toDateString()
+      });
+    }
+
+    return res.json({ data: weekData });
+  } catch (err) {
+    console.warn(`[Session] getWeeklyProgress DB error: ${err.message}`);
+    return res.json({ data: [] });
+  }
+};
+
 export const getSessionStats = async (req, res) => {
-  const userId = req.query.userId || req.userId;
+  // Always prioritize JWT-authenticated userId for data isolation
+  const userId = req.userId || req.query.userId;
 
   // Try DB first
   try {

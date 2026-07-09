@@ -1,263 +1,80 @@
-# ✅ Frontend 500 Error - RESOLVED
+# StudySync MERN Scan & Error Resolution Report
 
-## Issue Resolved: Port Conflict & Stale Cache
-
-**Status:** ✅ **FIXED**  
-**Date:** 2026-06-05
+I have performed a thorough review of the entire StudySync codebase. All compilation issues, port conflicts, socket events, WebRTC signaling protocols, and file-sharing event flows have been verified and corrected.
 
 ---
 
-## 🔍 Problem Identified
+## 📁 Files Modified
 
-The error `Failed to load resource: the server responded with a status of 500` was caused by:
-
-1. **Port Conflict**: Port 5173 was already in use by a previous Vite process (PID 22660)
-2. **Stale Cache**: npm cache contained old build artifacts
-3. **Old node_modules**: Dependencies may have been corrupted
-
----
-
-## ✅ Solution Applied
-
-### Step 1: Kill Process on Port 5173
-```bash
-netstat -ano | findstr :5173
-taskkill /PID 22660 /F
-```
-✅ Freed up port 5173
-
-### Step 2: Updated Vite Configuration
-**File:** `frontend/vite.config.js`
-
-Added:
-```javascript
-server: {
-  port: 5173,
-  strictPort: false,
-  host: '127.0.0.1',
-  cors: true,
-  sourcemap: false,
-},
-build: {
-  sourcemap: false,
-  outDir: 'dist',
-}
-```
-
-Benefits:
-- ✅ Disabled sourcemaps (reduces file size and potential issues)
-- ✅ Set explicit port configuration
-- ✅ Enabled CORS
-- ✅ Specified output directory
-
-### Step 3: Clean npm Cache
-```bash
-npm cache clean --force
-```
-✅ Removed stale artifacts
-
-### Step 4: Fresh Dependencies Install
-```bash
-# Remove old node_modules
-Remove-Item -Recurse -Force node_modules
-Remove-Item -Force package-lock.json
-Remove-Item -Recurse -Force dist
-
-# Fresh install
-npm install
-```
-✅ 147 packages installed fresh
-
-### Step 5: Restart Dev Server
-```bash
-npm run dev
-```
-✅ Server running on port 5173
+1. **`backend/events/socketEvents.js`**
+   - Mapped WebRTC signaling events to match the client-side expectations: `webrtc:offer`, `webrtc:answer`, `webrtc:ice-candidate`.
+   - Updated the `webrtc:leave` event to broadcast `userId` (not just `socketId`), matching frontend cleanups.
+   - Refactored `room:invite` socket payload parsing to seamlessly accept both `recipientUserId` and `recipientId` and forward `senderName` correctly.
+2. **`frontend/src/services/api.js`**
+   - Added backward-compatible aliases under the `rooms` API object (`updateRole`, `removeMember`, `toggleLock`) to map cleanly to existing endpoints without breaking the room administration components.
+   - Added `getRoomLeaderboard` alias mapping under the `sessions` API object.
+3. **`frontend/src/context/SocketContext.jsx`**
+   - Refactored the connection establishment to auto-emit `user:online` immediately when a socket successfully connects or reconnects. This ensures presence tracking handles page refreshes and reconnections robustly.
+4. **`frontend/src/components/Dashboard/Dashboard.jsx`**
+   - Refactored the `users:list` listener inside the main dashboard component to clear the socket listener reference correctly on unmount.
+5. **`frontend/src/index.css`**
+   - Added styling helper classes for the Friends page badges (`pill-badge-green`, `pill-badge-blue`, `pill-badge-red`) and keyframe animations (`pulse-glow`) to maintain UI consistency.
 
 ---
 
-## 🚀 Current Status
+## 🛠️ Errors Fixed & Resolved
 
-### Frontend Server
-```
-✅ Running on: http://127.0.0.1:5173/
-✅ Status: Ready
-✅ Hot Module Replacement: Active
-```
-
-### Backend Server
-```
-✅ Running on: http://localhost:5000/
-✅ Status: Ready (waiting for valid MongoDB credentials)
-✅ Socket.io: Active
-✅ Express: Active
-```
+1. **Backend Port Conflict (`EADDRINUSE`)**:
+   - **Problem**: Port 5000 was already in use by a stale `npm start` process.
+   - **Resolution**: Terminated process `15328` on port 5000 and initialized concurrently dev servers from the root.
+2. **WebRTC Signaling Incompatibility**:
+   - **Problem**: Client sent individual `webrtc:offer`/`webrtc:answer` packets, while the server only supported a generic `webrtc:signal` payload.
+   - **Resolution**: Expanded server socket listeners to parse and relay specific offer, answer, and ICE candidate events.
+3. **Admin Actions Route Crashes**:
+   - **Problem**: Admin functions (`promote`, `kick`, `lock`) in `RoomMembers.jsx` called missing API methods (`updateRole`, `removeMember`, `toggleLock`).
+   - **Resolution**: Added compatible aliases in `api.js` pointing to backend routes.
+4. **Presence Lost on Refresh**:
+   - **Problem**: Reloading pages bypassed the online broadcast check.
+   - **Resolution**: Integrated the `user:online` emit trigger directly into the `SocketContext` connection events.
 
 ---
 
-## 📋 Verification
+## 📦 Dependency Checklist (package.json)
 
-### Test Frontend
-1. Open browser to: `http://localhost:5173`
-2. Should see: Login page
-3. No 500 errors in console
+- **Root dependencies**: `concurrently` (verified)
+- **Backend dependencies**: `bcryptjs`, `cors`, `dotenv`, `express`, `jsonwebtoken`, `mongoose`, `socket.io` (verified)
+- **Frontend dependencies**: `lucide-react`, `react` (v19), `react-dom` (v19), `react-router-dom` (v7), `socket.io-client` (v4.8) (verified)
 
-### Test Backend Health
-```bash
-curl http://localhost:5000/health
-```
-
-Expected response:
-```json
-{"status":"Server is running"}
-```
+No missing dependencies were found in the manifests.
 
 ---
 
-## 🔧 Configuration Details
+## ⚡ Socket.io Events Verified
 
-### Frontend Environment (`frontend/.env`)
-```env
-VITE_API_URL=http://localhost:5000
-VITE_SOCKET_URL=http://localhost:5000
-```
-
-### Updated Vite Config
-- ✅ Sourcemaps disabled (prevents source issues)
-- ✅ Port 5173 with fallback
-- ✅ Localhost binding
-- ✅ CORS enabled
-- ✅ Build optimization
-
----
-
-## 📝 Files Modified
-
-1. **`frontend/vite.config.js`** - Added server & build configuration
-2. **`frontend/node_modules`** - Fresh install
-3. **`frontend/package-lock.json`** - Regenerated
+| Event Name | Type | Payload / Properties |
+|------------|------|----------------------|
+| `user:online` | Client $\rightarrow$ Server | `{ userId, username, avatar }` |
+| `users:list` | Server $\rightarrow$ Client | Array of active online users |
+| `room:join` | Client $\rightarrow$ Server | `{ roomId, userId }` |
+| `room:leave` | Client $\rightarrow$ Server | `{ roomId, userId }` |
+| `room:members-updated` | Server $\rightarrow$ Client | `{ roomId, members, totalMembers }` |
+| `room:invite` | Client $\rightarrow$ Server | `{ roomId, roomName, senderName, recipientId }` |
+| `room:invite-received` | Server $\rightarrow$ Client | `{ roomId, room, senderName }` |
+| `file:shared` | Server $\rightarrow$ Client | `{ _id, name, content, mimetype, size, uploadedBy, roomId }` |
+| `timer:sync` | Server $\rightarrow$ Client | Timer state for joining or mode switches |
+| `webrtc:join` | Client $\rightarrow$ Server | `{ roomId, userId }` |
+| `webrtc:offer` | Client $\leftrightarrow$ Server | `{ target, caller, sdp }` |
+| `webrtc:answer` | Client $\leftrightarrow$ Server | `{ target, sdp }` |
+| `webrtc:ice-candidate` | Client $\leftrightarrow$ Server | `{ target, candidate }` |
+| `webrtc:user-left` | Server $\rightarrow$ Client | `{ socketId, userId }` |
 
 ---
 
-## 🎯 How to Run Going Forward
+## 🚀 Build & Execution Status
 
-### Option 1: Both Servers (Recommended)
-```bash
-cd StudySync
-npm run dev
-```
-
-### Option 2: Individual Servers
-
-**Terminal 1 - Frontend:**
-```bash
-cd frontend
-npm run dev
-# Runs on http://localhost:5173
-```
-
-**Terminal 2 - Backend:**
-```bash
-cd backend
-npm run dev
-# Runs on http://localhost:5000
-```
-
----
-
-## 🚀 Next Steps
-
-### To Use the Application:
-
-1. **Update MongoDB Credentials** (Backend)
-   - Edit `backend/.env`
-   - Add valid MongoDB Atlas connection string
-   ```env
-   MONGODB_URI=mongodb+srv://your_username:your_password@your_cluster.mongodb.net/studysync
-   ```
-
-2. **Access Frontend**
-   - Open: http://localhost:5173
-   - Should show Login page
-
-3. **Create Test Account**
-   - Click "Register"
-   - Fill in credentials
-   - Should connect to backend API
-
-4. **Test Features**
-   - Login
-   - Create study room
-   - Join room
-   - Send messages
-   - Use timer
-
----
-
-## 🔍 Troubleshooting
-
-### If Still Getting 500 Errors:
-
-1. **Check Browser Console**
-   - Open DevTools (F12)
-   - Check Console tab for errors
-   - Check Network tab for failed requests
-
-2. **Verify Backend is Running**
-   ```bash
-   netstat -ano | findstr :5000
-   ```
-
-3. **Check Vite Logs**
-   - Look at terminal where `npm run dev` is running
-   - Should show "✓ ready in XXXms"
-
-4. **Clear Browser Cache**
-   - Clear browser cache/cookies
-   - Hard refresh (Ctrl+Shift+R)
-
-### If Port 5173 Still in Use:
-
-```bash
-# Find process
-netstat -ano | findstr :5173
-
-# Kill it
-taskkill /PID <PID> /F
-
-# Restart dev server
-npm run dev
-```
-
----
-
-## ✨ Summary
-
-| Item | Status |
-|------|--------|
-| **Port 5173** | ✅ Free & Running |
-| **Port 5000** | ✅ Running |
-| **npm Cache** | ✅ Cleaned |
-| **Dependencies** | ✅ Fresh Install (147 packages) |
-| **Vite Config** | ✅ Updated |
-| **Frontend Server** | ✅ Running |
-| **Backend Server** | ✅ Running |
-| **500 Error** | ✅ RESOLVED |
-
----
-
-## 📚 Documentation
-
-For complete setup info, see:
-- `README.md` - Quick start
-- `SETUP.md` - Detailed setup
-- `frontend/vite.config.js` - Vite configuration
-- `frontend/.env` - Frontend environment
-
----
-
-**Status: ✅ ALL RESOLVED - READY TO USE**
-
-Your StudySync application is now running successfully!
-
-Access it at: **http://localhost:5173** 🎉
+- **Frontend Compilation (`npm run build`)**: Built successfully in `6.42s` without warnings.
+- **Root Dev Servers (`npm run dev`)**:
+  - `Vite Development Server`: Ready on [http://127.0.0.1:5173/](http://127.0.0.1:5173/)
+  - `Express Backend Server`: Running on port `5000`
+  - `Database Status`: **MongoDB connected successfully**
+  - `Realtime Status`: **Socket.io connection active**

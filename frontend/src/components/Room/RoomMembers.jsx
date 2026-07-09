@@ -4,17 +4,30 @@ import { useAuth } from '../../hooks/useAuth';
 import { rooms as roomsApi, sessions as sessionsApi } from '../../services/api';
 
 export const RoomMembers = ({ roomId, initialMembers, room, onRefresh }) => {
-  const [members, setMembers] = useState(initialMembers || []);
+  const formatMembersList = (rawMembers) => {
+    return (rawMembers || []).map(m => {
+      if (m && m.user) return m;
+      const mId = m._id || m;
+      const isMOwner = room?.createdBy?._id === mId || room?.createdBy === mId;
+      const isMAdmin = isMOwner || (room?.admins || []).some(adminId => (adminId._id || adminId) === mId);
+      return {
+        user: m,
+        role: isMOwner ? 'owner' : isMAdmin ? 'admin' : 'student'
+      };
+    });
+  };
+
+  const [members, setMembers] = useState(formatMembersList(initialMembers));
   const [leaderboard, setLeaderboard] = useState([]);
   const [isLocked, setIsLocked] = useState(room?.isLocked || false);
   const { user } = useAuth();
   
   const isOwner = room?.createdBy?._id === user._id || room?.createdBy === user._id;
-  const isAdmin = isOwner || members.some(m => m.user?._id === user._id && m.role === 'admin');
+  const isAdmin = isOwner || (room?.admins || []).some(adminId => (adminId._id || adminId) === user._id);
 
   useEffect(() => {
-    setMembers(initialMembers || []);
-  }, [initialMembers]);
+    setMembers(formatMembersList(initialMembers));
+  }, [initialMembers, room]);
 
   useEffect(() => {
     if (room) {

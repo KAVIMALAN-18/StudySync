@@ -48,6 +48,18 @@ export const FileSharingPanel = ({ roomId }) => {
     }
   }, [roomId, socket]);
 
+  const fileToBase64 = (file) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => {
+        const base64String = reader.result.split(',')[1];
+        resolve(base64String);
+      };
+      reader.onerror = (error) => reject(error);
+    });
+  };
+
   const handleFileUpload = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -60,8 +72,15 @@ export const FileSharingPanel = ({ roomId }) => {
     try {
       setUploading(true);
       setError(null);
-      const res = await filesApi.upload(roomId, file);
-      const newFile = res.data.file;
+      const base64Content = await fileToBase64(file);
+      const payload = {
+        name: file.name,
+        content: base64Content,
+        mimetype: file.type || 'application/octet-stream',
+        size: file.size
+      };
+      const res = await filesApi.upload(roomId, payload);
+      const newFile = res.data.file || res.data;
       
       setFiles((prev) => [newFile, ...prev]);
       
@@ -80,21 +99,35 @@ export const FileSharingPanel = ({ roomId }) => {
 
   const handleDownload = async (fileId, filename) => {
     try {
-      const blob = await filesApi.download(fileId);
+      const res = await filesApi.download(fileId);
+      const fileData = res.data || res;
+      if (!fileData || !fileData.content) {
+        throw new Error('Invalid file content received');
+      }
+
+      const byteCharacters = atob(fileData.content);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], { type: fileData.mimetype || 'application/octet-stream' });
+
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = filename;
+      a.download = filename || fileData.name;
       document.body.appendChild(a);
       a.click();
       window.URL.revokeObjectURL(url);
       document.body.removeChild(a);
     } catch (err) {
+      console.error(err);
       setError('Failed to download file');
     }
   };
 
-  const handleDelete = async (fileId) => {
+  const handleDelete = async (fileId) => {  
     if (!window.confirm('Delete this file?')) return;
     try {
       await filesApi.delete(fileId);

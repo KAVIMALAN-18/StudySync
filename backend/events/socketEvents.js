@@ -125,15 +125,33 @@ const startRoomTimerInterval = (io, roomId) => {
 
         // Auto-switch mode
         if (timer.mode === 'focus') {
-          // Completed focus session!
+                  // Completed focus session!
           // Increment completed Pomodoro cycles for all users in the room
           const userIds = getRoomUserIds(io, roomId);
+
+          // Fetch room info for session:completed payload
+          let roomInfo = { name: 'Study Room', subject: 'General Study' };
+          try {
+            const rObj = await Room.findById(roomId).select('name subject').lean();
+            if (rObj) roomInfo = { name: rObj.name, subject: rObj.subject || 'General Study' };
+          } catch (_) {}
+
           for (const userId of userIds) {
-            recordSession(userId, roomId, { incrementPomodoro: true }).then(() => {
+            recordSession(userId, roomId, { incrementPomodoro: true }).then((sessionData) => {
               const userSocketsList = userSockets.get(userId);
               if (userSocketsList) {
                 for (const socketId of userSocketsList) {
+                  // Notify stats update (for dashboard refresh)
                   io.to(socketId).emit('stats:updated');
+                  // Rich session completion event (for toast + Recent Sessions refresh)
+                  io.to(socketId).emit('session:completed', {
+                    roomId,
+                    roomName: roomInfo.name,
+                    subject: roomInfo.subject,
+                    focusMinutes: timer.initialTimeLeft ? Math.round(timer.initialTimeLeft / 60) : 25,
+                    pomodorosCompleted: 1,
+                    completedAt: new Date().toISOString()
+                  });
                 }
               }
             }).catch(err => {
@@ -625,70 +643,6 @@ export const setupSocketEvents = (io) => {
       }
     });
 
-    socket.on('webrtc:join', (data) => {
-      const { roomId, userId } = data;
-      socket.to(`room:${roomId}`).emit('webrtc:user-joined', {
-        socketId: socket.id,
-        userId
-      });
-      console.log(`[WebRTC] User ${userId} (${socket.id}) joined video call in room ${roomId}`);
-    });
-
-    socket.on('webrtc:offer', (data) => {
-      const { target, caller, sdp } = data;
-      const targetSockets = userSockets.get(target);
-      if (targetSockets) {
-        for (const socketId of targetSockets) {
-          io.to(socketId).emit('webrtc:offer', {
-            caller,
-            sdp
-          });
-        }
-      }
-    });
-
-    socket.on('webrtc:answer', (data) => {
-      const { target, sdp } = data;
-      const targetSockets = userSockets.get(target);
-      if (targetSockets) {
-        for (const socketId of targetSockets) {
-          io.to(socketId).emit('webrtc:answer', {
-            sender: socket.userId,
-            sdp
-          });
-        }
-      }
-    });
-
-    socket.on('webrtc:ice-candidate', (data) => {
-      const { target, candidate } = data;
-      const targetSockets = userSockets.get(target);
-      if (targetSockets) {
-        for (const socketId of targetSockets) {
-          io.to(socketId).emit('webrtc:ice-candidate', {
-            sender: socket.userId,
-            candidate
-          });
-        }
-      }
-    });
-
-    socket.on('webrtc:signal', (data) => {
-      const { targetSocketId, signal } = data;
-      io.to(targetSocketId).emit('webrtc:signal', {
-        senderSocketId: socket.id,
-        signal
-      });
-    });
-
-    socket.on('webrtc:leave', (data) => {
-      const { roomId } = data;
-      socket.to(`room:${roomId}`).emit('webrtc:user-left', {
-        socketId: socket.id,
-        userId: socket.userId
-      });
-      console.log(`[WebRTC] User ${socket.userId} (${socket.id}) left video call in room ${roomId}`);
-    });
 
     socket.on('disconnect', async () => {
       try {

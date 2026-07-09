@@ -127,9 +127,11 @@ export const friends = {
 export const sessions = {
   getHistory: (userId) => apiCall(userId ? `/api/sessions/history?userId=${userId}` : '/api/sessions/history'),
   getStats: (userId) => apiCall(userId ? `/api/sessions/stats?userId=${userId}` : '/api/sessions/stats'),
+  getWeekly: () => apiCall('/api/sessions/weekly'),
   getRoomStats: (roomId) => apiCall(`/api/sessions/room/${roomId}`),
   getRoomLeaderboard: (roomId) => apiCall(`/api/sessions/room/${roomId}`),
 };
+
 
 export const ai = {
   chat: (prompt, type) =>

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { 
   User, Mail, FileText, Check, Edit3, Save, X, BookOpen, Clock, 
-  Flame, Award, Lock, Users, ArrowLeft, Plus, Trash2, Calendar
+  Flame, Award, Lock, Users, ArrowLeft, Plus, Trash2, Calendar, DoorOpen, DoorClosed
 } from 'lucide-react';
 import { users as usersApi, sessions as sessionsApi, rooms as roomsApi } from '../../services/api';
 import { useAuth } from '../../hooks/useAuth';
@@ -22,6 +22,8 @@ export const Profile = () => {
   const [stats, setStats] = useState(null);
   const [history, setHistory] = useState([]);
   const [createdRooms, setCreatedRooms] = useState([]);
+  const [roomsJoinedCount, setRoomsJoinedCount] = useState(0);
+  const [roomsCreatedCount, setRoomsCreatedCount] = useState(0);
   
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -56,6 +58,27 @@ export const Profile = () => {
     loadProfileData();
   }, [userId]);
 
+  // Socket listener for real-time stat/session updates
+  useEffect(() => {
+    if (!socket || !isOwnProfile) return;
+
+    const handleStatsUpdated = () => {
+      loadProfileData();
+    };
+
+    const handleSessionCompleted = (data) => {
+      loadProfileData();
+    };
+
+    socket.on('stats:updated', handleStatsUpdated);
+    socket.on('session:completed', handleSessionCompleted);
+
+    return () => {
+      socket.off('stats:updated', handleStatsUpdated);
+      socket.off('session:completed', handleSessionCompleted);
+    };
+  }, [socket, isOwnProfile]);
+
   const loadProfileData = async () => {
     setLoading(true);
     setError(null);
@@ -88,6 +111,10 @@ export const Profile = () => {
       const allRooms = roomsRes.data || [];
       const userCreated = allRooms.filter(r => r.createdBy?._id === targetUserId || r.createdBy === targetUserId);
       setCreatedRooms(userCreated);
+      
+      const userJoined = allRooms.filter(r => (r.members || []).some(m => (m._id || m) === targetUserId));
+      setRoomsCreatedCount(userCreated.length);
+      setRoomsJoinedCount(userJoined.length);
 
     } catch (err) {
       console.error('Error loading profile:', err);
@@ -261,11 +288,7 @@ export const Profile = () => {
               </div>
             )}
 
-            {profileUser.isOnline && (
-              <span className="pill-badge-green" style={{ fontSize: '0.65rem', display: 'inline-block', marginTop: '0.75rem' }}>
-                Online Now
-              </span>
-            )}
+
           </div>
 
           <div className="divider" style={{ width: '100%', margin: '0.5rem 0' }} />
@@ -443,7 +466,7 @@ export const Profile = () => {
           {!isEditing && (
             <>
               {/* Stat Cards Row */}
-              <div className="stat-cards-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '1rem' }}>
+              <div className="stat-cards-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '1rem' }}>
                 
                 <div className="stat-card">
                   <div className="stat-icon" style={{ background: 'rgba(99,102,241,0.1)', color: '#818cf8' }}>
@@ -451,14 +474,6 @@ export const Profile = () => {
                   </div>
                   <div className="stat-value">{hoursStudied}h</div>
                   <div className="stat-label">Hours Focused</div>
-                </div>
-
-                <div className="stat-card">
-                  <div className="stat-icon" style={{ background: 'rgba(239,68,68,0.1)', color: '#fca5a5' }}>
-                    <Award size={18} />
-                  </div>
-                  <div className="stat-value">{stats?.totalPomodoros || 0}</div>
-                  <div className="stat-label">Pomodoros</div>
                 </div>
 
                 <div className="stat-card">
@@ -476,37 +491,25 @@ export const Profile = () => {
                   <div className="stat-value">{profileUser.friends?.length || 0}</div>
                   <div className="stat-label">Friends</div>
                 </div>
-              </div>
 
-              {/* Study Rooms Summary */}
-              <div className="glass-card" style={{ padding: '2rem' }}>
-                <h2 className="section-title" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#c084fc' }}>
-                  <BookOpen size={18} /> Created Rooms ({createdRooms.length})
-                </h2>
-                
-                <div style={{ marginTop: '1.25rem' }}>
-                  {createdRooms.length === 0 ? (
-                    <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', fontStyle: 'italic' }}>
-                      No public rooms created by this user.
-                    </p>
-                  ) : (
-                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '1rem' }}>
-                      {createdRooms.map((room) => (
-                        <div key={room._id} className="room-card" style={{ padding: '1rem', border: '1px solid rgba(255,255,255,0.05)', background: 'rgba(255,255,255,0.01)', borderRadius: '8px' }}>
-                          <h4 style={{ fontWeight: 600, color: 'var(--text-primary)', fontSize: '0.9rem' }}>{room.name}</h4>
-                          <span style={{ fontSize: '0.7rem', color: '#a5b4fc', background: 'rgba(165,180,252,0.1)', padding: '0.1rem 0.4rem', borderRadius: '4px', display: 'inline-block', marginTop: '0.25rem' }}>
-                            {room.subject}
-                          </span>
-                          <p style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '0.5rem', lineClamp: 2 }}>{room.description || 'No description provided.'}</p>
-                          <Link to={`/room/${room._id}`} className="btn btn-ghost" style={{ display: 'inline-block', width: '100%', textAlign: 'center', fontSize: '0.75rem', marginTop: '0.75rem', padding: '0.3rem 0' }}>
-                            Enter Space
-                          </Link>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+                <div className="stat-card">
+                  <div className="stat-icon" style={{ background: 'rgba(99,102,241,0.1)', color: '#818cf8' }}>
+                    <DoorOpen size={18} />
+                  </div>
+                  <div className="stat-value">{roomsJoinedCount}</div>
+                  <div className="stat-label">Rooms Joined</div>
+                </div>
+
+                <div className="stat-card">
+                  <div className="stat-icon" style={{ background: 'rgba(192,132,252,0.1)', color: '#c084fc' }}>
+                    <DoorClosed size={18} />
+                  </div>
+                  <div className="stat-value">{roomsCreatedCount}</div>
+                  <div className="stat-label">Rooms Created</div>
                 </div>
               </div>
+
+
 
               {/* Recent History / Sessions */}
               <div className="glass-card" style={{ padding: '2rem' }}>
@@ -520,33 +523,30 @@ export const Profile = () => {
                       No recorded sessions yet.
                     </p>
                   ) : (
-                    history.slice(0, 5).map((session, i) => (
-                      <div key={i} style={{ 
-                        display: 'flex', 
-                        alignItems: 'center', 
-                        justifyContent: 'space-between', 
-                        padding: '0.75rem 1rem', 
-                        borderRadius: '6px', 
-                        background: 'rgba(255,255,255,0.01)', 
-                        border: '1px solid rgba(255,255,255,0.04)' 
-                      }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-                          <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#818cf8' }} />
-                          <div>
-                            <span style={{ fontSize: '0.85rem', fontWeight: 500, color: 'var(--text-primary)' }}>
-                              Study Room Session
-                            </span>
-                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                    history.slice(0, 8).map((session, i) => {
+                      const endTime = new Date(session.createdAt || session.completedAt || session.sessionDate);
+                      const startTime = new Date(endTime.getTime() - (session.focusMinutes || 25) * 60 * 1000);
+                      const formatTime = (date) => date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+
+                      return (
+                        <div key={i} className="session-card">
+                          <div className="session-card-dot" />
+                          <div className="session-card-info">
+                            <div className="session-card-room">{session.roomId?.name || 'Study Room'}</div>
+                            {session.roomId?.subject && <div className="session-card-subject">{session.roomId.subject}</div>}
+                            <div className="session-card-date">
                               {new Date(session.sessionDate).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}
                             </div>
+                            <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>
+                              ⏰ {formatTime(startTime)} - {formatTime(endTime)}
+                            </div>
+                          </div>
+                          <div className="session-card-stats">
+                            <div className="session-card-focus">{session.focusMinutes}m</div>
                           </div>
                         </div>
-                        <div style={{ display: 'flex', gap: '1rem', fontSize: '0.8rem', fontWeight: 600 }}>
-                          <span style={{ color: '#6ee7b7' }}>Focus: {session.focusMinutes}m</span>
-                          {session.pomodoroCount > 0 && <span style={{ color: '#fca5a5' }}>🍅 {session.pomodoroCount}</span>}
-                        </div>
-                      </div>
-                    ))
+                      );
+                    })
                   )}
                 </div>
               </div>

@@ -121,7 +121,7 @@ export const StudyTimer = ({ roomId, duration = 25, isOwner = false }) => {
   const isFocus = mode === 'focus';
 
   return (
-    <div className="timer-card animate-fade-in">
+    <div className="timer-card-transparent animate-fade-in">
 
       {/* Completed flash banner */}
       {justCompleted && (
@@ -142,11 +142,11 @@ export const StudyTimer = ({ roomId, duration = 25, isOwner = false }) => {
       )}
 
       {/* Mode pills */}
-      <div className="timer-mode-pills">
+      <div className="timer-mode-pills" style={{ maxWidth: '240px', margin: '0 auto 1.5rem' }}>
         <button
           className={`timer-mode-pill focus ${isFocus ? 'active' : ''}`}
           onClick={() => isOwner && !isRunning && resetTimer('focus')}
-          title={!isOwner ? 'Only the room owner can control the timer' : ''}
+          title={!isOwner ? 'Only room moderators can control the timer' : ''}
         >
           <Timer size={12} style={{ marginRight: '4px', verticalAlign: 'middle' }} />
           FOCUS
@@ -154,7 +154,7 @@ export const StudyTimer = ({ roomId, duration = 25, isOwner = false }) => {
         <button
           className={`timer-mode-pill break ${!isFocus ? 'active' : ''}`}
           onClick={() => isOwner && !isRunning && resetTimer('break')}
-          title={!isOwner ? 'Only the room owner can control the timer' : ''}
+          title={!isOwner ? 'Only room moderators can control the timer' : ''}
         >
           <Coffee size={12} style={{ marginRight: '4px', verticalAlign: 'middle' }} />
           BREAK
@@ -162,7 +162,7 @@ export const StudyTimer = ({ roomId, duration = 25, isOwner = false }) => {
       </div>
 
       {/* SVG Ring */}
-      <div className="timer-ring-wrap">
+      <div className="timer-ring-wrap-large">
         <svg className="timer-svg" viewBox="0 0 100 100">
           <circle className="timer-track" cx="50" cy="50" r="45" />
           <circle
@@ -173,7 +173,7 @@ export const StudyTimer = ({ roomId, duration = 25, isOwner = false }) => {
           />
         </svg>
         <div className="timer-inner">
-          <div className="timer-time">{formatTime(timeLeft)}</div>
+          <div className="timer-time-large">{formatTime(timeLeft)}</div>
           <div className="timer-mode-label">{isFocus ? 'Deep Work' : 'Rest'}</div>
           {!connected && (
             <div style={{ fontSize: '0.65rem', color: '#fca5a5', marginTop: '4px' }}>Reconnecting…</div>
@@ -181,8 +181,8 @@ export const StudyTimer = ({ roomId, duration = 25, isOwner = false }) => {
         </div>
       </div>
 
-      {/* Controls — only visible/enabled for room owner */}
-      <div className="timer-controls">
+      {/* Controls — visible/enabled for room owner & admins */}
+      <div className="timer-controls" style={{ maxWidth: '260px', margin: '0 auto' }}>
         {isOwner ? (
           <>
             <button
@@ -210,8 +210,9 @@ export const StudyTimer = ({ roomId, duration = 25, isOwner = false }) => {
             background: 'rgba(255,255,255,0.02)',
             borderRadius: '8px',
             border: '1px solid rgba(255,255,255,0.06)',
+            width: '100%',
           }}>
-            🔒 Timer controlled by room owner
+            🔒 Timer controlled by owner or admins
           </div>
         )}
       </div>
