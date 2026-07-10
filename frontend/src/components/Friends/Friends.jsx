@@ -2,14 +2,30 @@ import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { 
   Users, UserPlus, UserMinus, Check, X, Search, 
-  MessageSquare, UserCheck, Inbox, Flame, Sparkles, Clock, AlertCircle
+  MessageSquare, UserCheck, Inbox, Clock, AlertCircle
 } from 'lucide-react';
 import { friends as friendsApi, users as usersApi, rooms as roomsApi } from '../../services/api';
 import { useSocket } from '../../hooks/useSocket';
 import { useAuth } from '../../hooks/useAuth';
+import { Input } from '../ui/input';
+import { Select } from '../ui/select';
+import { Skeleton } from '../ui/skeleton';
+import { Tooltip, TooltipTrigger, TooltipContent } from '../ui/tooltip';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '../ui/tabs';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+  DialogClose,
+} from '../ui/dialog';
+import { toast } from 'sonner';
+import { cn } from '../../lib/utils';
 
 export const Friends = () => {
-  const [activeTab, setActiveTab] = useState('online'); // 'online' | 'all' | 'pending' | 'add'
+  const [activeTab, setActiveTab] = useState('online');
   const [friendsList, setFriendsList] = useState([]);
   const [pendingRequests, setPendingRequests] = useState([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -20,8 +36,7 @@ export const Friends = () => {
   
   const [loading, setLoading] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [successMessage, setSuccessMessage] = useState(null);
+  const [friendToRemove, setFriendToRemove] = useState(null);
 
   const { socket } = useSocket();
   const { user } = useAuth();
@@ -34,7 +49,6 @@ export const Friends = () => {
 
   const fetchFriendsAndRequests = async () => {
     setLoading(true);
-    setError(null);
     try {
       const [friendsRes, requestsRes] = await Promise.all([
         usersApi.getFriends(),
@@ -43,8 +57,7 @@ export const Friends = () => {
       setFriendsList(friendsRes.data || []);
       setPendingRequests(requestsRes.data || []);
     } catch (err) {
-      console.error('Error fetching friends data:', err);
-      setError('Failed to load friends list or requests');
+      toast.error('Failed to load friends list or requests');
     } finally {
       setLoading(false);
     }
@@ -55,7 +68,7 @@ export const Friends = () => {
       const roomsRes = await roomsApi.getMyRooms();
       setMyRooms(roomsRes.data || []);
     } catch (err) {
-      console.error('Error fetching my rooms:', err);
+      console.error(err);
     }
   };
 
@@ -64,13 +77,11 @@ export const Friends = () => {
     if (!searchQuery.trim()) return;
 
     setSearchLoading(true);
-    setError(null);
     try {
       const res = await usersApi.search(searchQuery.trim());
       setSearchResults(res.data || []);
     } catch (err) {
-      console.error('Error searching users:', err);
-      setError('Search failed. Please try again.');
+      toast.error('Search failed. Please try again.');
     } finally {
       setSearchLoading(false);
     }
@@ -78,69 +89,48 @@ export const Friends = () => {
 
   const sendFriendRequest = async (recipientId) => {
     try {
-      setError(null);
-      setSuccessMessage(null);
-      const res = await friendsApi.sendRequest(recipientId);
-      setSuccessMessage('Friend request sent successfully!');
+      await friendsApi.sendRequest(recipientId);
+      toast.success('Friend request sent successfully!');
       
-      // Update local search results state if matching
       setSearchResults(prev => 
         prev.map(u => u._id === recipientId ? { ...u, requestSent: true } : u)
       );
 
-      // Emit socket notification
       socket?.emit('friend:request-sent', { senderId: user._id, recipientId });
-
-      setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err) {
-      setError(err.message || 'Failed to send friend request');
-      setTimeout(() => setError(null), 4000);
+      toast.error(err.message || 'Failed to send friend request');
     }
   };
 
   const acceptFriendRequest = async (requestId) => {
     try {
-      setError(null);
       await friendsApi.accept(requestId);
-      setSuccessMessage('Friend request accepted!');
-      
-      // Refresh list
+      toast.success('Friend request accepted!');
       await fetchFriendsAndRequests();
-      
-      setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err) {
-      setError(err.message || 'Failed to accept friend request');
+      toast.error(err.message || 'Failed to accept friend request');
     }
   };
 
   const declineFriendRequest = async (requestId) => {
     try {
-      setError(null);
       await friendsApi.decline(requestId);
-      setSuccessMessage('Friend request declined.');
-      
-      // Refresh list
+      toast.success('Friend request declined');
       await fetchFriendsAndRequests();
-
-      setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err) {
-      setError(err.message || 'Failed to decline friend request');
+      toast.error(err.message || 'Failed to decline request');
     }
   };
 
-  const removeFriend = async (friendId) => {
-    if (!window.confirm('Are you sure you want to remove this friend?')) return;
+  const removeFriend = async () => {
+    if (!friendToRemove) return;
     try {
-      setError(null);
-      await friendsApi.remove(friendId);
-      setSuccessMessage('Friend removed.');
-      
-      // Refresh list
+      await friendsApi.remove(friendToRemove._id);
+      toast.success('Friend removed successfully');
+      setFriendToRemove(null);
       await fetchFriendsAndRequests();
-
-      setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err) {
-      setError(err.message || 'Failed to remove friend');
+      toast.error(err.message || 'Failed to remove friend');
     }
   };
 
@@ -157,7 +147,6 @@ export const Friends = () => {
     const room = myRooms.find(r => r._id === selectedRoomToInvite);
     if (!room) return;
 
-    // Send invitation via socket
     socket?.emit('room:invite', {
       roomId: room._id,
       roomName: room.name,
@@ -165,346 +154,347 @@ export const Friends = () => {
       recipientId: selectedFriendForInvite._id
     });
 
-    setSuccessMessage(`Invitation to join "${room.name}" sent to ${selectedFriendForInvite.username}!`);
+    toast.success(`Invitation to join "${room.name}" sent to ${selectedFriendForInvite.username}!`);
     setSelectedFriendForInvite(null);
-
-    setTimeout(() => setSuccessMessage(null), 4000);
   };
 
   const onlineFriends = friendsList.filter(f => f.isOnline);
 
+  if (loading) {
+    return (
+      <div className="p-8 max-w-[1200px] mx-auto space-y-8 animate-fade-in">
+        <div className="space-y-3">
+          <Skeleton className="h-10 w-72" />
+          <Skeleton className="h-5 w-96" />
+        </div>
+        <Skeleton className="h-[350px] w-full rounded-xl" />
+      </div>
+    );
+  }
+
   return (
-    <div className="friends-shell animate-fade-in" style={{ padding: '2rem', maxWidth: '1200px', margin: '0 auto' }}>
-      {/* ── Header with Glow ── */}
-      <div className="dashboard-header" style={{ marginBottom: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+    <div className="p-8 max-w-[1200px] mx-auto space-y-8 animate-fade-in">
+      {/* Header */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-border pb-6">
         <div>
-          <h1 className="dashboard-greeting" style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <Users size={32} color="#818cf8" style={{ filter: 'drop-shadow(0 0 8px rgba(129,140,248,0.5))' }} />
+          <h1 className="text-3xl font-display font-extrabold text-white tracking-tight flex items-center gap-3">
+            <Users size={32} className="text-indigo-400 drop-shadow-[0_0_8px_rgba(99,102,241,0.3)]" />
             Collaborators & Friends
           </h1>
-          <p className="dashboard-sub">Find study buddies, invite them to rooms, and boost productivity together</p>
-        </div>
-
-        {/* Action Tabs in Discord/Notion Style */}
-        <div className="tab-pills" style={{ background: 'rgba(15,23,42,0.4)', padding: '0.25rem', borderRadius: '8px' }}>
-          <button className={`tab-pill ${activeTab === 'online' ? 'active' : ''}`} onClick={() => { setActiveTab('online'); setError(null); }}>
-            Online {onlineFriends.length > 0 && <span className="pill-badge-green">{onlineFriends.length}</span>}
-          </button>
-          <button className={`tab-pill ${activeTab === 'all' ? 'active' : ''}`} onClick={() => { setActiveTab('all'); setError(null); }}>
-            All Friends {friendsList.length > 0 && <span className="pill-badge-blue">{friendsList.length}</span>}
-          </button>
-          <button className={`tab-pill ${activeTab === 'pending' ? 'active' : ''}`} onClick={() => { setActiveTab('pending'); setError(null); }}>
-            Pending {pendingRequests.length > 0 && <span className="pill-badge-red">{pendingRequests.length}</span>}
-          </button>
-          <button className={`tab-pill ${activeTab === 'add' ? 'active' : ''}`} onClick={() => { setActiveTab('add'); setError(null); setSearchResults([]); }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-              <UserPlus size={14} /> Add Friend
-            </div>
-          </button>
+          <p className="text-sm text-slate-400 mt-2">Find study buddies, invite them to rooms, and boost productivity together</p>
         </div>
       </div>
 
-      {/* Messages */}
-      {successMessage && (
-        <div className="inline-toast inline-toast-success animate-slide-up" style={{ marginBottom: '1.5rem', background: 'rgba(16,185,129,0.15)', borderColor: 'rgba(16,185,129,0.3)', color: '#10b981', display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem 1rem', borderRadius: '8px', border: '1px solid' }}>
-          <UserCheck size={16} />
-          {successMessage}
-        </div>
-      )}
+      {/* Main content Area */}
+      <div className="bg-slate-900/20 border border-border p-6 rounded-xl min-h-[400px]">
+        <Tabs value={activeTab} onValueChange={(val) => { setActiveTab(val); setSearchResults([]); }} className="w-full space-y-6">
+          <TabsList className="w-full md:w-auto justify-start gap-1">
+            <TabsTrigger value="online">
+              Online {onlineFriends.length > 0 && <span className="ml-1.5 px-1.5 py-0.5 text-[10px] bg-emerald-500/10 text-emerald-400 rounded-full">{onlineFriends.length}</span>}
+            </TabsTrigger>
+            <TabsTrigger value="all">
+              All Friends {friendsList.length > 0 && <span className="ml-1.5 px-1.5 py-0.5 text-[10px] bg-indigo-500/10 text-indigo-400 rounded-full">{friendsList.length}</span>}
+            </TabsTrigger>
+            <TabsTrigger value="pending">
+              Pending Requests {pendingRequests.length > 0 && <span className="ml-1.5 px-1.5 py-0.5 text-[10px] bg-red-500/10 text-red-400 rounded-full">{pendingRequests.length}</span>}
+            </TabsTrigger>
+            <TabsTrigger value="add" className="flex items-center gap-1.5">
+              <UserPlus size={13} /> Add Friend
+            </TabsTrigger>
+          </TabsList>
 
-      {error && (
-        <div className="inline-toast inline-toast-error animate-slide-up" style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.75rem 1rem', borderRadius: '8px' }}>
-          <AlertCircle size={16} />
-          {error}
-        </div>
-      )}
-
-      {/* Main Glass Panel */}
-      <div className="glass-card" style={{ padding: '2rem', minHeight: '400px' }}>
-        {loading ? (
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: '300px' }}>
-            <div className="spinner" style={{ marginBottom: '1rem' }} />
-            <span style={{ color: 'var(--text-muted)' }}>Loading connections...</span>
-          </div>
-        ) : (
-          <>
-            {/* Tab: ONLINE */}
-            {activeTab === 'online' && (
-              <div>
-                <h3 className="section-title-sm" style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#6ee7b7' }}>
-                  <span className="chat-status-dot chat-status-live" style={{ width: '8px', height: '8px' }} />
-                  Online Friends ({onlineFriends.length})
-                </h3>
-
-                {onlineFriends.length === 0 ? (
-                  <div className="empty-state" style={{ padding: '4rem 0' }}>
-                    <Inbox size={48} className="empty-state-icon" style={{ opacity: 0.2 }} />
-                    <div className="empty-state-title">No friends online right now</div>
-                    <div className="empty-state-sub">When your study buddies get online, they will appear here. Go ahead and invite someone to join!</div>
-                    <button className="btn btn-primary" onClick={() => setActiveTab('add')} style={{ marginTop: '1.5rem' }}>
-                      <UserPlus size={16} /> Add a New Friend
-                    </button>
-                  </div>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '1rem' }}>
-                    {onlineFriends.map(friend => (
-                      <div key={friend._id} className="member-item" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', padding: '0.85rem 1.25rem', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                          <Link to={`/profile/${friend._id}`} style={{ display: 'flex', alignItems: 'center', gap: '1rem', textDecoration: 'none', color: 'inherit' }}>
-                            <div className="member-avatar" style={{ background: 'rgba(129,140,248,0.2)', color: '#818cf8', fontWeight: 'bold', width: '40px', height: '40px', fontSize: '1rem', position: 'relative' }}>
-                              {(friend.username?.[0] || 'U').toUpperCase()}
-                              <span className="member-online-dot" style={{ bottom: '2px', right: '2px', width: '10px', height: '10px', background: '#10b981', border: '2px solid #0b0e14' }} />
-                            </div>
-                            <div>
-                              <div style={{ fontWeight: 600, color: 'var(--text-primary)' }} className="hover-underline">
-                                {friend.fullName ? `${friend.fullName} (@${friend.username})` : friend.username}
-                              </div>
-                              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{friend.bio || 'Studying hard! 🚀'}</div>
-                              {(friend.city || friend.country) && (
-                                <div style={{ fontSize: '0.68rem', color: '#a5b4fc', marginTop: '0.15rem' }}>
-                                  📍 {[friend.city, friend.country].filter(Boolean).join(', ')}
-                                </div>
-                              )}
-                            </div>
-                          </Link>
-                        </div>
-                        
-                        <div style={{ display: 'flex', gap: '0.5rem' }}>
-                          {myRooms.length > 0 && (
-                            <button className="btn btn-primary" onClick={() => handleInviteFriend(friend)} style={{ padding: '0.4rem 0.85rem', fontSize: '0.75rem' }}>
-                              Invite to Study Room
-                            </button>
-                          )}
-                          <button className="btn btn-ghost" onClick={() => navigate('/dashboard')} style={{ padding: '0.4rem', borderRadius: '6px' }} title="Visit Dashboard">
-                            <MessageSquare size={16} />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Tab: ALL FRIENDS */}
-            {activeTab === 'all' && (
-              <div>
-                <h3 className="section-title-sm" style={{ color: 'var(--text-secondary)' }}>
-                  All Friends ({friendsList.length})
-                </h3>
-
-                {friendsList.length === 0 ? (
-                  <div className="empty-state" style={{ padding: '4rem 0' }}>
-                    <Users size={48} className="empty-state-icon" style={{ opacity: 0.2 }} />
-                    <div className="empty-state-title">Your friend list is empty</div>
-                    <div className="empty-state-sub">Add friends to easily collaborate, invite them to private sessions, and track each other's progress.</div>
-                    <button className="btn btn-primary" onClick={() => setActiveTab('add')} style={{ marginTop: '1.5rem' }}>
-                      <UserPlus size={16} /> Find Friends
-                    </button>
-                  </div>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '1rem' }}>
-                    {friendsList.map(friend => (
-                      <div key={friend._id} className="member-item" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', padding: '0.85rem 1.25rem', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                          <Link to={`/profile/${friend._id}`} style={{ display: 'flex', alignItems: 'center', gap: '1rem', textDecoration: 'none', color: 'inherit' }}>
-                            <div className="member-avatar" style={{ background: 'rgba(148,163,184,0.15)', color: 'var(--text-secondary)', fontWeight: 'bold', width: '40px', height: '40px', fontSize: '1rem', position: 'relative' }}>
-                              {(friend.username?.[0] || 'U').toUpperCase()}
-                              {friend.isOnline && (
-                                <span className="member-online-dot" style={{ bottom: '2px', right: '2px', width: '10px', height: '10px', background: '#10b981', border: '2px solid #0b0e14' }} />
-                              )}
-                            </div>
-                            <div>
-                              <div style={{ fontWeight: 600, color: 'var(--text-primary)' }} className="hover-underline">
-                                {friend.fullName ? `${friend.fullName} (@${friend.username})` : friend.username}
-                              </div>
-                              <div style={{ fontSize: '0.75rem', color: friend.isOnline ? '#6ee7b7' : 'var(--text-muted)' }}>
-                                {friend.isOnline ? 'Online now' : 'Offline'}
-                              </div>
-                              {(friend.city || friend.country) && (
-                                <div style={{ fontSize: '0.68rem', color: '#a5b4fc', marginTop: '0.15rem' }}>
-                                  📍 {[friend.city, friend.country].filter(Boolean).join(', ')}
-                                </div>
-                              )}
-                            </div>
-                          </Link>
-                        </div>
-
-                        <div style={{ display: 'flex', gap: '0.5rem' }}>
-                          <button className="btn btn-ghost" onClick={() => removeFriend(friend._id)} style={{ padding: '0.4rem 0.75rem', fontSize: '0.75rem', color: '#fca5a5' }}>
-                            <UserMinus size={14} style={{ marginRight: '4px' }} /> Unfriend
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Tab: PENDING REQUESTS */}
-            {activeTab === 'pending' && (
-              <div>
-                <h3 className="section-title-sm" style={{ color: '#fca5a5' }}>
-                  Pending Friend Requests ({pendingRequests.length})
-                </h3>
-
-                {pendingRequests.length === 0 ? (
-                  <div className="empty-state" style={{ padding: '4rem 0' }}>
-                    <Inbox size={48} className="empty-state-icon" style={{ opacity: 0.2 }} />
-                    <div className="empty-state-title">No pending requests</div>
-                    <div className="empty-state-sub">You have no incoming friend requests at the moment.</div>
-                  </div>
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginTop: '1rem' }}>
-                    {pendingRequests.map(req => (
-                      <div key={req._id} className="member-item" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', padding: '0.85rem 1.25rem', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                          <Link to={`/profile/${req.sender?._id}`} style={{ display: 'flex', alignItems: 'center', gap: '1rem', textDecoration: 'none', color: 'inherit' }}>
-                            <div className="member-avatar" style={{ background: 'rgba(129,140,248,0.2)', color: '#818cf8', fontWeight: 'bold', width: '40px', height: '40px' }}>
-                              {(req.sender?.username?.[0] || 'U').toUpperCase()}
-                            </div>
-                            <div>
-                              <div style={{ fontWeight: 600, color: 'var(--text-primary)' }} className="hover-underline">{req.sender?.username}</div>
-                              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>wants to add you as a friend</div>
-                            </div>
-                          </Link>
-                        </div>
-
-                        <div style={{ display: 'flex', gap: '0.5rem' }}>
-                          <button className="btn btn-primary" onClick={() => acceptFriendRequest(req._id)} style={{ padding: '0.4rem 0.85rem', fontSize: '0.75rem', background: '#10b981', borderColor: '#10b981', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                            <Check size={14} /> Accept
-                          </button>
-                          <button className="btn btn-ghost" onClick={() => declineFriendRequest(req._id)} style={{ padding: '0.4rem 0.85rem', fontSize: '0.75rem', color: '#fca5a5', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                            <X size={14} /> Decline
-                          </button>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* Tab: ADD FRIEND */}
-            {activeTab === 'add' && (
-              <div>
-                <h3 className="section-title-sm" style={{ color: 'var(--text-secondary)' }}>Add Friends</h3>
-                <p className="dashboard-sub" style={{ fontSize: '0.8rem', marginTop: '-0.5rem', marginBottom: '1.5rem' }}>Search by username to add other StudySync users to your study network.</p>
-
-                <form onSubmit={handleSearch} style={{ display: 'flex', gap: '0.75rem', marginBottom: '2rem' }}>
-                  <div style={{ position: 'relative', flex: 1 }}>
-                    <Search size={18} style={{ position: 'absolute', left: '1rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
-                    <input
-                      type="text"
-                      className="input-dark"
-                      placeholder="Enter username..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      style={{ paddingLeft: '2.75rem' }}
-                    />
-                  </div>
-                  <button type="submit" disabled={searchLoading} className="btn btn-primary" style={{ padding: '0 1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                    {searchLoading ? 'Searching...' : <><Search size={16} /> Search</>}
-                  </button>
-                </form>
-
-                {searchResults.length === 0 ? (
-                  searchQuery.trim() && !searchLoading ? (
-                    <div style={{ textAlign: 'center', padding: '2rem 0', color: 'var(--text-muted)' }}>
-                      No users found matching "{searchQuery}"
-                    </div>
-                  ) : null
-                ) : (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-                    {searchResults.map(result => {
-                      const isAlreadyFriend = friendsList.some(f => f._id === result._id);
-                      return (
-                        <div key={result._id} className="member-item" style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', padding: '0.85rem 1.25rem', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                            <Link to={`/profile/${result._id}`} style={{ display: 'flex', alignItems: 'center', gap: '1rem', textDecoration: 'none', color: 'inherit' }}>
-                              <div className="member-avatar" style={{ background: 'rgba(129,140,248,0.15)', color: '#818cf8', fontWeight: 'bold', width: '40px', height: '40px' }}>
-                                {(result.username?.[0] || 'U').toUpperCase()}
-                              </div>
-                              <div>
-                                <div style={{ fontWeight: 600, color: 'var(--text-primary)' }} className="hover-underline">
-                                  {result.fullName ? `${result.fullName} (@${result.username})` : result.username}
-                                </div>
-                                <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>{result.bio || 'Ready to study together! ✍️'}</div>
-                                {(result.city || result.country) && (
-                                  <div style={{ fontSize: '0.68rem', color: '#a5b4fc', marginTop: '0.15rem' }}>
-                                    📍 {[result.city, result.country].filter(Boolean).join(', ')}
-                                  </div>
-                                )}
-                              </div>
-                            </Link>
-                          </div>
-
-                          <div>
-                            {isAlreadyFriend ? (
-                              <span style={{ fontSize: '0.75rem', color: '#10b981', fontWeight: 600, padding: '0.4rem 0.75rem', background: 'rgba(16,185,129,0.1)', borderRadius: '6px' }}>
-                                Already Friends
-                              </span>
-                            ) : result.requestSent ? (
-                              <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600, padding: '0.4rem 0.75rem', background: 'rgba(255,255,255,0.05)', borderRadius: '6px', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                                <Clock size={12} /> Pending Request
-                              </span>
-                            ) : (
-                              <button className="btn btn-primary" onClick={() => sendFriendRequest(result._id)} style={{ padding: '0.4rem 0.85rem', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                                <UserPlus size={14} /> Send Request
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
-          </>
-        )}
-      </div>
-
-      {/* Invite Modal Pop-up */}
-      {selectedFriendForInvite && (
-        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100, backdropFilter: 'blur(4px)' }}>
-          <div className="glass-card animate-scale-up" style={{ padding: '2rem', maxWidth: '400px', width: '90%', border: '1px solid rgba(255,255,255,0.1)' }}>
-            <h3 className="section-title-sm" style={{ color: 'var(--text-primary)', marginBottom: '1rem' }}>
-              Invite {selectedFriendForInvite.username} to Study
+          <TabsContent value="online" className="focus:outline-none space-y-4">
+            <h3 className="text-sm font-bold font-display text-emerald-400 flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+              Online Friends ({onlineFriends.length})
             </h3>
-            
-            <p style={{ fontSize: '0.85rem', color: 'var(--text-muted)', marginBottom: '1.5rem' }}>
-              Select one of your rooms to send an invitation request to your friend.
-            </p>
 
-            <div style={{ marginBottom: '1.5rem' }}>
-              <label className="auth-label" style={{ marginBottom: '0.5rem' }}>Choose Study Room</label>
-              <select 
-                className="input-dark" 
-                value={selectedRoomToInvite} 
-                onChange={(e) => setSelectedRoomToInvite(e.target.value)}
-                style={{ width: '100%', background: 'rgba(15,23,42,0.8)', border: '1px solid rgba(255,255,255,0.1)', color: 'var(--text-primary)', padding: '0.75rem', borderRadius: '6px' }}
-              >
-                {myRooms.map(room => (
-                  <option key={room._id} value={room._id}>
-                    {room.name} ({room.members?.length || 0} active)
-                  </option>
+            {onlineFriends.length === 0 ? (
+              <div className="text-center py-16 space-y-4 border border-dashed border-border rounded-xl bg-slate-900/10">
+                <Inbox size={40} className="mx-auto text-slate-600" />
+                <div className="text-sm font-bold text-white">No friends online right now</div>
+                <p className="text-xs text-slate-400 max-w-sm mx-auto">When your study buddies get online, they will appear here. Go ahead and invite someone to join!</p>
+                <button 
+                  onClick={() => setActiveTab('add')}
+                  className="inline-flex items-center justify-center rounded-md text-xs font-semibold h-8 px-3 bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer"
+                >
+                  <UserPlus size={14} className="mr-1.5" /> Find Friends
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3">
+                {onlineFriends.map(friend => (
+                  <div key={friend._id} className="bg-slate-900/40 border border-border p-4 rounded-xl flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="relative w-10 h-10 rounded-full bg-indigo-600/20 text-indigo-400 flex items-center justify-center font-bold text-sm shrink-0 border border-indigo-500/10">
+                        {(friend.username?.[0] || 'U').toUpperCase()}
+                        <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 border-2 border-slate-950 rounded-full" />
+                      </div>
+                      <div className="min-w-0">
+                        <Link to={`/profile/${friend._id}`} className="font-bold text-white text-sm hover:underline truncate block">
+                          {friend.fullName || friend.username}
+                        </Link>
+                        <p className="text-xs text-slate-400 truncate mt-0.5">{friend.bio || 'Studying hard! 🚀'}</p>
+                        {friend.city && (
+                          <span className="text-[10px] text-indigo-300 mt-1 block">📍 {friend.city}, {friend.country}</span>
+                        )}
+                      </div>
+                    </div>
+                    
+                    <div className="flex gap-2 shrink-0">
+                      {myRooms.length > 0 && (
+                        <button 
+                          onClick={() => handleInviteFriend(friend)}
+                          className="inline-flex items-center justify-center rounded-md text-xs font-semibold h-8 px-3 bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer transition-all"
+                        >
+                          Invite to Room
+                        </button>
+                      )}
+                      <button 
+                        onClick={() => navigate('/dashboard')}
+                        className="inline-flex items-center justify-center rounded-md text-xs font-semibold h-8 w-8 border border-border text-slate-400 hover:text-white hover:bg-white/5 cursor-pointer"
+                        title="Chat"
+                      >
+                        <MessageSquare size={14} />
+                      </button>
+                    </div>
+                  </div>
                 ))}
-              </select>
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="all" className="focus:outline-none space-y-4">
+            <h3 className="text-sm font-bold font-display text-white">All Friends ({friendsList.length})</h3>
+
+            {friendsList.length === 0 ? (
+              <div className="text-center py-16 space-y-4 border border-dashed border-border rounded-xl bg-slate-900/10">
+                <Users size={40} className="mx-auto text-slate-600" />
+                <div className="text-sm font-bold text-white">Your friend list is empty</div>
+                <p className="text-xs text-slate-400 max-w-sm mx-auto">Add friends to easily collaborate, invite them to private sessions, and track each other's progress.</p>
+                <button 
+                  onClick={() => setActiveTab('add')}
+                  className="inline-flex items-center justify-center rounded-md text-xs font-semibold h-8 px-3 bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer"
+                >
+                  <UserPlus size={14} className="mr-1.5" /> Find Friends
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3">
+                {friendsList.map(friend => (
+                  <div key={friend._id} className="bg-slate-900/40 border border-border p-4 rounded-xl flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="relative w-10 h-10 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center font-bold text-sm shrink-0 border border-border">
+                        {(friend.username?.[0] || 'U').toUpperCase()}
+                        {friend.isOnline && (
+                          <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 border-2 border-slate-950 rounded-full" />
+                        )}
+                      </div>
+                      <div className="min-w-0">
+                        <Link to={`/profile/${friend._id}`} className="font-bold text-white text-sm hover:underline truncate block">
+                          {friend.fullName || friend.username}
+                        </Link>
+                        <span className={cn(
+                          "text-[10px] font-semibold mt-0.5 block",
+                          friend.isOnline ? "text-emerald-400" : "text-slate-500"
+                        )}>
+                          {friend.isOnline ? 'Online now' : 'Offline'}
+                        </span>
+                      </div>
+                    </div>
+                    
+                    <button 
+                      onClick={() => setFriendToRemove(friend)}
+                      className="inline-flex items-center justify-center rounded-md text-xs font-semibold h-8 px-3 border border-red-500/20 text-red-400 hover:bg-red-500 hover:text-white transition-all cursor-pointer shrink-0"
+                    >
+                      <UserMinus size={13} className="mr-1.5" /> Unfriend
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="pending" className="focus:outline-none space-y-4">
+            <h3 className="text-sm font-bold font-display text-white">Pending Requests ({pendingRequests.length})</h3>
+
+            {pendingRequests.length === 0 ? (
+              <div className="text-center py-16 space-y-2 border border-dashed border-border rounded-xl bg-slate-900/10">
+                <Inbox size={40} className="mx-auto text-slate-600" />
+                <div className="text-xs font-semibold text-slate-500">No pending friend requests</div>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3">
+                {pendingRequests.map(req => (
+                  <div key={req._id} className="bg-slate-900/40 border border-border p-4 rounded-xl flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-10 h-10 rounded-full bg-indigo-600/10 text-indigo-400 flex items-center justify-center font-bold text-sm shrink-0">
+                        {(req.sender?.username?.[0] || 'U').toUpperCase()}
+                      </div>
+                      <div className="min-w-0">
+                        <Link to={`/profile/${req.sender?._id}`} className="font-bold text-white text-sm hover:underline truncate block">
+                          {req.sender?.username}
+                        </Link>
+                        <p className="text-xs text-slate-400 mt-0.5">wants to add you as a friend</p>
+                      </div>
+                    </div>
+                    
+                    <div className="flex gap-2 shrink-0">
+                      <button 
+                        onClick={() => acceptFriendRequest(req._id)}
+                        className="inline-flex items-center justify-center rounded-md text-xs font-semibold h-8 px-3.5 bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer"
+                      >
+                        <Check size={14} className="mr-1" /> Accept
+                      </button>
+                      <button 
+                        onClick={() => declineFriendRequest(req._id)}
+                        className="inline-flex items-center justify-center rounded-md text-xs font-semibold h-8 px-3 bg-white/5 hover:bg-white/10 text-slate-300 cursor-pointer"
+                      >
+                        <X size={14} className="mr-1" /> Decline
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </TabsContent>
+
+          <TabsContent value="add" className="focus:outline-none space-y-6">
+            <div className="space-y-1.5">
+              <h3 className="text-sm font-bold font-display text-white">Find Study Buddies</h3>
+              <p className="text-xs text-slate-400">Search by username to send friend requests and construct your study circles.</p>
             </div>
 
-            <div style={{ display: 'flex', gap: '0.75rem' }}>
-              <button className="btn btn-primary" onClick={sendRoomInvitation} style={{ flex: 1 }}>
-                Send Invitation
+            <form onSubmit={handleSearch} className="flex gap-2">
+              <div className="relative flex-1">
+                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+                <Input
+                  placeholder="Enter buddy's username..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-9"
+                />
+              </div>
+              <button 
+                type="submit" 
+                disabled={searchLoading}
+                className="inline-flex items-center justify-center rounded-md text-xs font-semibold h-10 px-4 bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer shrink-0"
+              >
+                {searchLoading ? 'Searching...' : <><Search size={14} className="mr-1.5" /> Search</>}
               </button>
-              <button className="btn btn-ghost" onClick={() => setSelectedFriendForInvite(null)} style={{ flex: 1 }}>
+            </form>
+
+            {searchResults.length === 0 ? (
+              searchQuery.trim() && !searchLoading && (
+                <div className="text-center py-8 text-xs text-slate-500">
+                  No users found matching "{searchQuery}"
+                </div>
+              )
+            ) : (
+              <div className="flex flex-col gap-3">
+                {searchResults.map(result => {
+                  const isAlreadyFriend = friendsList.some(f => f._id === result._id);
+                  return (
+                    <div key={result._id} className="bg-slate-900/40 border border-border p-4 rounded-xl flex items-center justify-between gap-4">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-10 h-10 rounded-full bg-slate-800 text-slate-400 flex items-center justify-center font-bold text-sm shrink-0">
+                          {(result.username?.[0] || 'U').toUpperCase()}
+                        </div>
+                        <div className="min-w-0">
+                          <Link to={`/profile/${result._id}`} className="font-bold text-white text-sm hover:underline truncate block">
+                            {result.fullName || result.username}
+                          </Link>
+                          <p className="text-xs text-slate-400 truncate mt-0.5">{result.bio || 'Ready to study together! ✍️'}</p>
+                        </div>
+                      </div>
+
+                      <div className="shrink-0">
+                        {isAlreadyFriend ? (
+                          <span className="text-xs font-semibold text-emerald-400 bg-emerald-500/10 px-2.5 py-1 rounded">Already Friends</span>
+                        ) : result.requestSent ? (
+                          <span className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 bg-white/5 px-2.5 py-1 rounded">
+                            <Clock size={12} /> Sent
+                          </span>
+                        ) : (
+                          <button 
+                            onClick={() => sendFriendRequest(result._id)}
+                            className="inline-flex items-center justify-center rounded-md text-xs font-semibold h-8 px-3.5 bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer"
+                          >
+                            <UserPlus size={13} className="mr-1.5" /> Add
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </TabsContent>
+        </Tabs>
+      </div>
+
+      {/* Remove Friend Confirm Dialog */}
+      <Dialog open={!!friendToRemove} onOpenChange={(open) => !open && setFriendToRemove(null)}>
+        <DialogContent className="max-w-sm bg-slate-950 border border-border">
+          <DialogHeader>
+            <DialogTitle>Remove Friend?</DialogTitle>
+            <DialogDescription className="text-slate-400 text-xs">
+              Are you sure you want to remove {friendToRemove?.username} from your friends list?
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="pt-2">
+            <DialogClose asChild>
+              <button className="inline-flex items-center justify-center rounded-md text-xs font-semibold h-9 px-4 bg-white/5 hover:bg-white/10 text-white cursor-pointer">
                 Cancel
               </button>
-            </div>
+            </DialogClose>
+            <button 
+              onClick={removeFriend}
+              className="inline-flex items-center justify-center rounded-md text-xs font-semibold h-9 px-4 bg-red-600 hover:bg-red-700 text-white cursor-pointer ml-2"
+            >
+              Unfriend
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Invite Friend to Room Dialog */}
+      <Dialog open={!!selectedFriendForInvite} onOpenChange={(open) => !open && setSelectedFriendForInvite(null)}>
+        <DialogContent className="max-w-sm bg-slate-950 border border-border">
+          <DialogHeader>
+            <DialogTitle>Invite to Session</DialogTitle>
+            <DialogDescription className="text-slate-400 text-xs">
+              Select one of your study rooms to invite {selectedFriendForInvite?.username}.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4 space-y-2">
+            <label className="text-[10px] text-slate-500 font-bold uppercase tracking-wider block">Choose Study Room</label>
+            <Select 
+              value={selectedRoomToInvite} 
+              onChange={(e) => setSelectedRoomToInvite(e.target.value)}
+            >
+              {myRooms.map(room => (
+                <option key={room._id} value={room._id}>
+                  {room.name} ({room.members?.length || 0} active)
+                </option>
+              ))}
+            </Select>
           </div>
-        </div>
-      )}
+          <DialogFooter>
+            <DialogClose asChild>
+              <button className="inline-flex items-center justify-center rounded-md text-xs font-semibold h-9 px-4 bg-white/5 hover:bg-white/10 text-white cursor-pointer">
+                Cancel
+              </button>
+            </DialogClose>
+            <button 
+              onClick={sendRoomInvitation}
+              className="inline-flex items-center justify-center rounded-md text-xs font-semibold h-9 px-4 bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer ml-2"
+            >
+              Send Invite
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

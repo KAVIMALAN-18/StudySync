@@ -2,19 +2,8 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Play, Pause, RotateCcw, Timer, Coffee } from 'lucide-react';
 import { useSocket } from '../../hooks/useSocket';
 import { useAuth } from '../../hooks/useAuth';
+import { cn } from '../../lib/utils';
 
-/**
- * StudyTimer — display-only client.
- *
- * The server (socketEvents.js) is the single source of truth for the countdown.
- * It broadcasts `timer:update` every second and `timer:sync` on mode-switch /
- * room-join.  This component only renders what the server tells it and sends
- * control commands (start / pause / reset) back to the server.
- *
- * There is NO client-side setInterval here.  That was causing a race condition
- * where two independent countdowns drifted apart and triggered double session
- * recordings.
- */
 export const StudyTimer = ({ roomId, duration = 25, isOwner = false }) => {
   const [timeLeft, setTimeLeft] = useState(duration * 60);
   const [isRunning, setIsRunning] = useState(false);
@@ -24,8 +13,6 @@ export const StudyTimer = ({ roomId, duration = 25, isOwner = false }) => {
 
   const { socket, connected } = useSocket();
   const { user } = useAuth();
-
-  // ─── Socket listeners ─────────────────────────────────────────────────────
 
   const handleTimerUpdate = useCallback((data) => {
     if (data.roomId && data.roomId !== roomId) return;
@@ -45,7 +32,6 @@ export const StudyTimer = ({ roomId, duration = 25, isOwner = false }) => {
     if (data.action === 'mode-switched') {
       setJustCompleted(true);
       setTimeout(() => setJustCompleted(false), 4000);
-      // Play bell
       try {
         const audio = new Audio('/bell.mp3');
         audio.play().catch(() => {});
@@ -78,7 +64,6 @@ export const StudyTimer = ({ roomId, duration = 25, isOwner = false }) => {
     socket.on('timer:pause', handleTimerPause);
     socket.on('timer:reset', handleTimerReset);
 
-    // Ask server for current state immediately on mount
     socket.emit('timer:request-state', { roomId });
 
     return () => {
@@ -89,8 +74,6 @@ export const StudyTimer = ({ roomId, duration = 25, isOwner = false }) => {
       socket.off('timer:reset', handleTimerReset);
     };
   }, [socket, roomId, handleTimerUpdate, handleTimerSync, handleTimerStart, handleTimerPause, handleTimerReset]);
-
-  // ─── Owner control emitters ───────────────────────────────────────────────
 
   const toggleTimer = () => {
     if (!socket || !connected || !isOwner) return;
@@ -106,8 +89,6 @@ export const StudyTimer = ({ roomId, duration = 25, isOwner = false }) => {
     socket.emit('timer:reset', { roomId, mode: newMode, userId: user?._id });
   };
 
-  // ─── Display helpers ──────────────────────────────────────────────────────
-
   const formatTime = (seconds) => {
     const m = Math.floor(seconds / 60).toString().padStart(2, '0');
     const s = (seconds % 60).toString().padStart(2, '0');
@@ -121,101 +102,113 @@ export const StudyTimer = ({ roomId, duration = 25, isOwner = false }) => {
   const isFocus = mode === 'focus';
 
   return (
-    <div className="timer-card-transparent animate-fade-in">
-
-      {/* Completed flash banner */}
+    <div className="flex flex-col items-center justify-center space-y-6 text-center select-none max-w-sm mx-auto">
+      
+      {/* Completed Alert */}
       {justCompleted && (
-        <div style={{
-          background: isFocus ? 'rgba(16,185,129,0.15)' : 'rgba(99,102,241,0.15)',
-          border: `1px solid ${isFocus ? 'rgba(16,185,129,0.3)' : 'rgba(99,102,241,0.3)'}`,
-          borderRadius: '8px',
-          padding: '0.5rem 1rem',
-          fontSize: '0.8rem',
-          fontWeight: 600,
-          color: isFocus ? '#6ee7b7' : '#a5b4fc',
-          textAlign: 'center',
-          marginBottom: '0.75rem',
-          animation: 'fadeInSlideUp 0.3s ease'
-        }}>
+        <div className={cn(
+          "w-full px-4 py-2.5 rounded-lg text-xs font-semibold border text-center transition-all animate-scale-up",
+          isFocus 
+            ? "bg-emerald-500/10 border-emerald-500/25 text-emerald-400" 
+            : "bg-indigo-500/10 border-indigo-500/25 text-indigo-400"
+        )}>
           {isFocus ? '☕ Break time! Great focus session!' : '🎯 Back to work! Stay sharp!'}
         </div>
       )}
 
-      {/* Mode pills */}
-      <div className="timer-mode-pills" style={{ maxWidth: '240px', margin: '0 auto 1.5rem' }}>
+      {/* Mode selectors */}
+      <div className="flex items-center gap-2 p-1 bg-slate-950 rounded-lg border border-border max-w-[220px]">
         <button
-          className={`timer-mode-pill focus ${isFocus ? 'active' : ''}`}
+          disabled={!isOwner || isRunning}
           onClick={() => isOwner && !isRunning && resetTimer('focus')}
-          title={!isOwner ? 'Only room moderators can control the timer' : ''}
+          className={cn(
+            "flex items-center justify-center gap-1.5 px-3 py-1.5 rounded text-[10px] font-bold tracking-wider select-none transition-all focus:outline-none disabled:opacity-50",
+            isFocus 
+              ? "bg-indigo-600 text-white shadow-sm" 
+              : "text-slate-400 hover:text-white"
+          )}
         >
-          <Timer size={12} style={{ marginRight: '4px', verticalAlign: 'middle' }} />
-          FOCUS
+          <Timer size={11} /> FOCUS
         </button>
         <button
-          className={`timer-mode-pill break ${!isFocus ? 'active' : ''}`}
+          disabled={!isOwner || isRunning}
           onClick={() => isOwner && !isRunning && resetTimer('break')}
-          title={!isOwner ? 'Only room moderators can control the timer' : ''}
+          className={cn(
+            "flex items-center justify-center gap-1.5 px-3 py-1.5 rounded text-[10px] font-bold tracking-wider select-none transition-all focus:outline-none disabled:opacity-50",
+            !isFocus 
+              ? "bg-indigo-600 text-white shadow-sm" 
+              : "text-slate-400 hover:text-white"
+          )}
         >
-          <Coffee size={12} style={{ marginRight: '4px', verticalAlign: 'middle' }} />
-          BREAK
+          <Coffee size={11} /> BREAK
         </button>
       </div>
 
-      {/* SVG Ring */}
-      <div className="timer-ring-wrap-large">
-        <svg className="timer-svg" viewBox="0 0 100 100">
-          <circle className="timer-track" cx="50" cy="50" r="45" />
+      {/* Timer SVG Ring */}
+      <div className="relative w-56 h-56 transition-all duration-300 timer-ring-wrap-large shrink-0 flex items-center justify-center">
+        <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
+          <circle 
+            className="stroke-slate-900 fill-none" 
+            cx="50" 
+            cy="50" 
+            r="45" 
+            strokeWidth="3.5" 
+          />
           <circle
-            className={`timer-progress ${mode} ${isRunning ? 'running' : ''}`}
-            cx="50" cy="50" r="45"
+            className={cn(
+              "fill-none transition-all duration-300",
+              isFocus ? "stroke-indigo-500" : "stroke-cyan-500",
+              isRunning ? "opacity-100" : "opacity-80"
+            )}
+            cx="50" 
+            cy="50" 
+            r="45"
+            strokeWidth="3.5"
+            strokeLinecap="round"
             strokeDasharray={strokeDasharray}
             strokeDashoffset={strokeDashoffset}
           />
         </svg>
-        <div className="timer-inner">
-          <div className="timer-time-large">{formatTime(timeLeft)}</div>
-          <div className="timer-mode-label">{isFocus ? 'Deep Work' : 'Rest'}</div>
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <div className="text-4xl font-display font-extrabold text-white tracking-tight leading-none timer-time-large">
+            {formatTime(timeLeft)}
+          </div>
+          <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mt-1">
+            {isFocus ? 'Deep Work' : 'Resting'}
+          </div>
           {!connected && (
-            <div style={{ fontSize: '0.65rem', color: '#fca5a5', marginTop: '4px' }}>Reconnecting…</div>
+            <div className="text-[9px] text-red-400 font-medium mt-1">Reconnecting…</div>
           )}
         </div>
       </div>
 
-      {/* Controls — visible/enabled for room owner & admins */}
-      <div className="timer-controls" style={{ maxWidth: '260px', margin: '0 auto' }}>
+      {/* Controls */}
+      <div className="w-full max-w-[240px]">
         {isOwner ? (
-          <>
+          <div className="flex items-center gap-2">
             <button
               onClick={toggleTimer}
-              className="btn btn-primary timer-btn-main"
               disabled={!connected}
+              className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg text-xs font-bold h-9 px-4 bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm transition-all focus:outline-none disabled:opacity-50 cursor-pointer"
             >
-              {isRunning ? <><Pause size={16} /> Pause</> : <><Play size={16} /> {timeLeft === initialTime ? 'Start' : 'Resume'}</>}
+              {isRunning ? <><Pause size={14} /> Pause</> : <><Play size={14} /> {timeLeft === initialTime ? 'Start' : 'Resume'}</>}
             </button>
             <button
               onClick={() => resetTimer()}
-              className="btn btn-ghost timer-btn-reset"
               disabled={!connected}
-              title="Reset Timer"
+              className="inline-flex items-center justify-center rounded-lg text-xs font-bold h-9 w-9 border border-border bg-transparent text-slate-400 hover:text-white hover:bg-white/5 transition-all focus:outline-none disabled:opacity-50 cursor-pointer"
+              title="Reset timer"
             >
-              <RotateCcw size={16} />
+              <RotateCcw size={14} />
             </button>
-          </>
+          </div>
         ) : (
-          <div style={{
-            fontSize: '0.78rem',
-            color: 'var(--text-muted)',
-            textAlign: 'center',
-            padding: '0.5rem',
-            background: 'rgba(255,255,255,0.02)',
-            borderRadius: '8px',
-            border: '1px solid rgba(255,255,255,0.06)',
-            width: '100%',
-          }}>
-            🔒 Timer controlled by owner or admins
+          <div className="text-[11px] text-slate-500 text-center py-2 px-3 bg-white/[0.01] rounded-lg border border-border">
+            🔒 Timer controlled by host & admins
           </div>
         )}
       </div>
+
     </div>
   );
 };

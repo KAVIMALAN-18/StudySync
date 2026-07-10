@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Send, MessageCircle } from 'lucide-react';
+import { Send, MessageCircle, Paperclip, Smile } from 'lucide-react';
 import { useSocket } from '../../hooks/useSocket';
 import { useAuth } from '../../hooks/useAuth';
 import { rooms as roomsApi } from '../../services/api';
+import { ScrollArea } from '../ui/scroll-area';
+import { cn } from '../../lib/utils';
 
 export const ChatPanel = ({ roomId }) => {
   const [messages, setMessages] = useState([]);
@@ -102,85 +104,164 @@ export const ChatPanel = ({ roomId }) => {
     return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
+  // Grouping consecutive messages from same sender within 2 mins
+  const groupedMessages = [];
+  messages.forEach((msg, idx) => {
+    const prevMsg = messages[idx - 1];
+    const isNotification = msg.type === 'notification' || msg.type === 'system';
+    
+    if (isNotification) {
+      groupedMessages.push({ type: 'notification', content: msg.content, _id: msg._id || idx });
+      return;
+    }
+
+    const timeDiff = prevMsg ? new Date(msg.timestamp) - new Date(prevMsg.timestamp) : Infinity;
+    const isConsecutive = prevMsg && 
+                          !prevMsg.type &&
+                          String(prevMsg.senderId) === String(msg.senderId) && 
+                          timeDiff < 2 * 60 * 1000;
+
+    if (isConsecutive && groupedMessages.length > 0 && groupedMessages[groupedMessages.length - 1].type !== 'notification') {
+      groupedMessages[groupedMessages.length - 1].contents.push({
+        text: msg.content,
+        timestamp: msg.timestamp,
+        _id: msg._id || idx
+      });
+    } else {
+      groupedMessages.push({
+        type: 'chat',
+        senderId: msg.senderId,
+        senderName: msg.senderName,
+        timestamp: msg.timestamp,
+        contents: [{ text: msg.content, timestamp: msg.timestamp, _id: msg._id || idx }]
+      });
+    }
+  });
+
   return (
-    <div className="chat-panel">
+    <div className="flex flex-col h-full bg-slate-950 overflow-hidden select-text">
       {/* Header */}
-      <div className="panel-header">
-        <div className="panel-header-title">
-          <MessageCircle size={16} color="#818cf8" />
-          Room Chat
-        </div>
+      <div className="p-5 border-b border-border flex items-center justify-between shrink-0 bg-slate-950/40">
+        <h3 className="text-sm font-bold font-display text-white flex items-center gap-2">
+          <MessageCircle size={16} className="text-indigo-400" /> Room Chat
+        </h3>
+        <span className="text-[10px] text-indigo-400 font-bold px-2 py-0.5 rounded bg-indigo-500/10 border border-indigo-500/20">
+          Live Sync
+        </span>
       </div>
 
-      {/* Messages */}
-      <div className="chat-messages">
+      {/* Messages Scroll Area */}
+      <ScrollArea className="flex-1 p-5">
         {loading ? (
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
-            <div className="spinner" />
+          <div className="flex flex-col items-center justify-center h-full min-h-[250px] space-y-2">
+            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-600" />
+            <span className="text-xs text-slate-500">Loading chat logs...</span>
           </div>
-        ) : messages.length === 0 ? (
-          <div className="empty-state" style={{ height: '100%' }}>
-            <MessageCircle size={36} className="empty-state-icon" />
-            <div className="empty-state-title">No messages yet</div>
-            <div className="empty-state-sub">Say hello to the room!</div>
+        ) : groupedMessages.length === 0 ? (
+          <div className="flex flex-col items-center justify-center text-center py-16 space-y-3 h-full min-h-[250px]">
+            <MessageCircle size={32} className="text-slate-700" />
+            <h4 className="text-xs font-bold text-slate-300">All Quiet Here</h4>
+            <p className="text-[11px] text-slate-500 max-w-[200px] leading-relaxed mx-auto">No messages sent yet. Say hello to start collaborating!</p>
           </div>
         ) : (
-          messages.map((msg, idx) => {
-            const isOwnMessage = String(msg.senderId) === String(user._id);
-            const isNotification = msg.type === 'notification' || msg.type === 'system';
+          <div className="space-y-4">
+            {groupedMessages.map((group, gIdx) => {
+              if (group.type === 'notification') {
+                return (
+                  <div key={group._id || gIdx} className="flex justify-center my-2 select-none animate-scale-up">
+                    <span className="text-[10px] font-semibold px-2.5 py-0.5 rounded bg-slate-900 border border-border text-slate-400 select-none">
+                      {group.content}
+                    </span>
+                  </div>
+                );
+              }
 
-            if (isNotification) {
+              const isOwn = String(group.senderId) === String(user._id);
+
               return (
-                <div key={msg._id || idx} style={{ display: 'flex', justifyContent: 'center', margin: '0.5rem 0' }}>
-                  <span className="chat-bubble-system">{msg.content}</span>
+                <div key={gIdx} className={cn(
+                  "flex gap-3 items-start max-w-[85%] animate-scale-up",
+                  isOwn ? "ml-auto flex-row-reverse" : "mr-auto"
+                )}>
+                  {/* Avatar */}
+                  <div className="w-8 h-8 rounded-full bg-slate-900 text-slate-300 font-extrabold text-xs flex items-center justify-center shrink-0 border border-border select-none">
+                    {(group.senderName?.[0] || 'U').toUpperCase()}
+                  </div>
+
+                  <div className="space-y-1.5 flex flex-col">
+                    {/* Header */}
+                    <div className={cn(
+                      "flex items-baseline gap-2 text-[10px] select-none",
+                      isOwn ? "justify-end" : "justify-start"
+                    )}>
+                      <span className="font-bold text-white leading-none">{group.senderName}</span>
+                      <span className="text-slate-500 font-medium leading-none">{formatTime(group.timestamp)}</span>
+                    </div>
+
+                    {/* Chat bubbles list */}
+                    <div className={cn("space-y-1 flex flex-col", isOwn ? "items-end" : "items-start")}>
+                      {group.contents.map((msg, mIdx) => (
+                        <div 
+                          key={msg._id || mIdx}
+                          className={cn(
+                            "px-3 py-2 text-xs leading-relaxed break-words max-w-full group relative transition-all",
+                            isOwn 
+                              ? "bg-indigo-600 text-white rounded-2xl rounded-tr-sm" 
+                              : "bg-slate-900 border border-border text-slate-200 rounded-2xl rounded-tl-sm",
+                          )}
+                        >
+                          {msg.text}
+                          {/* Hover Timestamp */}
+                          <span className={cn(
+                            "opacity-0 group-hover:opacity-100 transition-all text-[8px] text-slate-500 absolute top-1/2 -translate-y-1/2 bg-slate-950 px-1 py-0.5 rounded border border-border select-none whitespace-nowrap",
+                            isOwn ? "-left-10" : "-right-10"
+                          )}>
+                            {formatTime(msg.timestamp)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               );
-            }
-
-            return (
-              <div key={msg._id || idx} className={isOwnMessage ? 'chat-msg-own' : 'chat-msg-other'}>
-                {!isOwnMessage && (
-                  <div className="chat-avatar-sm">
-                    {(msg.senderName || '?')[0].toUpperCase()}
-                  </div>
-                )}
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: isOwnMessage ? 'flex-end' : 'flex-start' }}>
-                  {!isOwnMessage && (
-                    <div className="chat-sender-name">{msg.senderName}</div>
-                  )}
-                  <div className={isOwnMessage ? 'chat-bubble-own' : 'chat-bubble-other'}>
-                    {msg.content}
-                  </div>
-                  <div className="chat-timestamp" style={{ marginTop: '0.25rem' }}>{formatTime(msg.timestamp)}</div>
-                </div>
-              </div>
-            );
-          })
+            })}
+            <div ref={messagesEndRef} />
+          </div>
         )}
-        <div ref={messagesEndRef} />
-      </div>
+      </ScrollArea>
 
-      {/* Input */}
-      <div className="chat-input-bar">
-        <form onSubmit={handleSendMessage} style={{ display: 'flex', gap: '0.5rem', width: '100%' }}>
-          <input
-            id="chat-input"
-            type="text"
-            value={messageInput}
-            onChange={(e) => setMessageInput(e.target.value)}
-            onKeyDown={handleKeyDown}
-            disabled={!connected}
-            placeholder={connected ? 'Type your message...' : 'Reconnecting...'}
-            autoComplete="off"
-            className="chat-input"
-          />
+      {/* Input Form */}
+      <div className="p-4 border-t border-border bg-slate-950/40 shrink-0">
+        <form onSubmit={handleSendMessage} className="flex gap-2">
+          <div className="relative flex-1">
+            <input
+              id="chat-input"
+              type="text"
+              value={messageInput}
+              onChange={(e) => setMessageInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              disabled={!connected}
+              placeholder={connected ? 'Type your message...' : 'Reconnecting...'}
+              autoComplete="off"
+              className="w-full h-10 bg-slate-900 border border-border rounded-lg pl-3 pr-20 text-xs text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-all disabled:opacity-50"
+            />
+            {/* Input Action Controls (Attachment, Emoji buttons) */}
+            <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1.5 text-slate-500">
+              <button type="button" className="p-1 hover:text-slate-300 rounded cursor-pointer" title="Add files">
+                <Paperclip size={14} />
+              </button>
+              <button type="button" className="p-1 hover:text-slate-300 rounded cursor-pointer" title="Add emoji">
+                <Smile size={14} />
+              </button>
+            </div>
+          </div>
           <button
             id="chat-send-btn"
             type="submit"
             disabled={!connected || !messageInput.trim()}
-            className="chat-send-btn"
+            className="inline-flex items-center justify-center rounded-lg text-xs font-semibold h-10 w-10 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-900 text-white disabled:text-slate-600 transition-all cursor-pointer shrink-0"
           >
-            <Send size={16} />
+            <Send size={14} />
           </button>
         </form>
       </div>

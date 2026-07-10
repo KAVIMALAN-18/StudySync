@@ -17,7 +17,7 @@ const app = express();
 const httpServer = createServer(app);
 
 // Parse CORS origins (supports comma-separated list for multi-deploy)
-const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5173')
+const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5173,http://127.0.0.1:5173')
   .split(',')
   .map(o => o.trim())
   .filter(Boolean);
@@ -25,7 +25,8 @@ const allowedOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5173')
 const io = new Server(httpServer, {
   cors: {
     origin: allowedOrigins,
-    methods: ['GET', 'POST']
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    credentials: true
   }
 });
 
@@ -36,6 +37,24 @@ connectDB().catch(err => {
   console.error('MongoDB connection failed (server will continue running):', err.message);
 });
 
+// Robust CORS Preflight & Header Interceptor
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', allowedOrigins[0] || '*');
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(204);
+  }
+  next();
+});
+
 // Security headers
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -44,8 +63,6 @@ app.use((req, res, next) => {
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   next();
 });
-
-app.use(cors({ origin: allowedOrigins }));
 
 // Limit JSON body size to 10MB (for file uploads via base64)
 app.use(express.json({ limit: '10mb' }));

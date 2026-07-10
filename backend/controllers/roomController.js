@@ -110,7 +110,25 @@ export const getRoomDetail = async (req, res) => {
 export const updateRoom = async (req, res) => {
   try {
     const { roomId } = req.params;
-    const { name, description, status, studyDuration } = req.body;
+    const { 
+      name, 
+      description, 
+      status, 
+      studyDuration,
+      subject,
+      studyGoal,
+      coverColor,
+      coverIcon,
+      isPrivate,
+      isLocked,
+      inviteOnly,
+      allowChat,
+      allowFileSharing,
+      allowAIAssistant,
+      autoStartBreak,
+      autoStartFocus,
+      breakDuration
+    } = req.body;
     const userId = req.userId;
 
     const room = await Room.findById(roomId);
@@ -127,6 +145,19 @@ export const updateRoom = async (req, res) => {
     if (description !== undefined) room.description = description;
     if (status) room.status = status;
     if (studyDuration) room.studyDuration = studyDuration;
+    if (subject) room.subject = subject;
+    if (studyGoal !== undefined) room.studyGoal = studyGoal;
+    if (coverColor) room.coverColor = coverColor;
+    if (coverIcon) room.coverIcon = coverIcon;
+    if (isPrivate !== undefined) room.isPrivate = isPrivate;
+    if (isLocked !== undefined) room.isLocked = isLocked;
+    if (inviteOnly !== undefined) room.inviteOnly = inviteOnly;
+    if (allowChat !== undefined) room.allowChat = allowChat;
+    if (allowFileSharing !== undefined) room.allowFileSharing = allowFileSharing;
+    if (allowAIAssistant !== undefined) room.allowAIAssistant = allowAIAssistant;
+    if (autoStartBreak !== undefined) room.autoStartBreak = autoStartBreak;
+    if (autoStartFocus !== undefined) room.autoStartFocus = autoStartFocus;
+    if (breakDuration !== undefined) room.breakDuration = breakDuration;
 
     await room.save();
     await room.populate('createdBy', 'username avatar');
@@ -471,3 +502,25 @@ export const transferOwnership = async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 };
+
+export const getRoomByCode = async (req, res) => {
+  try {
+    const { code } = req.params;
+    if (!code) {
+      return res.status(400).json({ error: 'Room code is required' });
+    }
+
+    const room = await Room.findOne({ code: code.toUpperCase() })
+      .populate('createdBy', 'username avatar')
+      .populate('members', 'username avatar');
+
+    if (!room) {
+      return res.status(404).json({ error: 'Room not found with this code' });
+    }
+
+    res.json({ data: room });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+

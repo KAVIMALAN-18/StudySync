@@ -66,7 +66,41 @@ const userSchema = new mongoose.Schema(
     }],
     subjects: [{
       type: String
-    }]
+    }],
+    themePreference: {
+      type: String,
+      default: 'dark'
+    },
+    notificationPreferences: {
+      emailNotifications: { type: Boolean, default: true },
+      pushNotifications: { type: Boolean, default: true }
+    },
+    privacyPreference: {
+      showOnlineStatus: { type: Boolean, default: true },
+      publicProfile: { type: Boolean, default: true }
+    },
+    studyPreferences: {
+      defaultFocusDuration: { type: Number, default: 30 },
+      defaultBreakDuration: { type: Number, default: 5 },
+      studyGoal: { type: Number, default: 120 },
+      preferredStudyTime: { type: String, default: 'Evening' }
+    },
+    friendRequestsEnabled: {
+      type: Boolean,
+      default: true
+    },
+    roomInvitesEnabled: {
+      type: Boolean,
+      default: true
+    },
+    allowAI: {
+      type: Boolean,
+      default: true
+    },
+    soundNotifications: {
+      type: Boolean,
+      default: true
+    }
   },
   { timestamps: true }
 );

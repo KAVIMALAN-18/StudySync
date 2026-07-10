@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import axios from 'axios';
 
 export const askGemini = async (req, res) => {
   try {
@@ -10,55 +11,51 @@ export const askGemini = async (req, res) => {
     }
 
     if (apiKey) {
-      // Direct HTTP fetch to Gemini API
+      // Direct HTTP request to Gemini API using Axios
       try {
-        const response = await fetch(
+        const response = await axios.post(
           `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
           {
-            method: 'POST',
+            contents: [
+              {
+                parts: [
+                  {
+                    text: `You are StudySync Gemini AI, a helpful collaborative study assistant. Format responses with clean HTML/Markdown. The user has selected option: ${type || 'general'}. Prompt: ${prompt}`
+                  }
+                ]
+              }
+            ]
+          },
+          {
             headers: {
               'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-              contents: [
-                {
-                  parts: [
-                    {
-                      text: `You are StudySync Gemini AI, a helpful collaborative study assistant. Format responses with clean HTML/Markdown. The user has selected option: ${type || 'general'}. Prompt: ${prompt}`
-                    }
-                  ]
-                }
-              ]
-            })
+            }
           }
         );
 
-        if (response.ok) {
-          const result = await response.json();
-          const reply = result.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (reply) {
-            return res.json({ reply });
-          }
-        } else {
-          const errData = await response.json().catch(() => ({}));
-          const errMsg = errData.error?.message || `Gemini API returned status ${response.status}`;
-          
-          let friendlyMsg = 'AI Assistant is temporarily unavailable.';
-          if (response.status === 400 && errMsg.includes('API key')) {
-            friendlyMsg = 'Invalid Gemini API key. Please verify the environment configuration.';
-          } else if (response.status === 429) {
-            friendlyMsg = 'Gemini API rate limit exceeded. Please try again in a few moments.';
-          } else if (response.status === 403) {
-            friendlyMsg = 'Access to Gemini API is forbidden. Check authorization settings.';
-          } else {
-            friendlyMsg = `Gemini API Error: ${errMsg}`;
-          }
-          
-          return res.status(response.status).json({ error: friendlyMsg });
+        const reply = response.data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (reply) {
+          return res.json({ reply });
         }
       } catch (geminiErr) {
-        console.error(`[AIController] Gemini API network/fetch error:`, geminiErr);
-        return res.status(503).json({ error: 'Network error. Could not connect to the Gemini API service.' });
+        console.error(`[AIController] Gemini API network/request error:`, geminiErr.message);
+        
+        const status = geminiErr.response?.status || 503;
+        const errData = geminiErr.response?.data || {};
+        const errMsg = errData.error?.message || geminiErr.message;
+        
+        let friendlyMsg = 'AI Assistant is temporarily unavailable.';
+        if (status === 400 && errMsg.includes('API key')) {
+          friendlyMsg = 'Invalid Gemini API key. Please verify the environment configuration.';
+        } else if (status === 429) {
+          friendlyMsg = 'Gemini API rate limit exceeded. Please try again in a few moments.';
+        } else if (status === 403) {
+          friendlyMsg = 'Access to Gemini API is forbidden. Check authorization settings.';
+        } else {
+          friendlyMsg = `Gemini API Error: ${errMsg}`;
+        }
+        
+        return res.status(status).json({ error: friendlyMsg });
       }
     }
 

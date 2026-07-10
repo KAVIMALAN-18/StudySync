@@ -78,9 +78,50 @@ const roomSchema = new mongoose.Schema(
     timeRemaining: {
       type: Number,
       default: null
+    },
+    studyGoal: {
+      type: String,
+      default: ''
+    },
+    coverColor: {
+      type: String,
+      default: '#6366f1'
+    },
+    coverIcon: {
+      type: String,
+      default: '📚'
+    },
+    allowChat: {
+      type: Boolean,
+      default: true
+    },
+    allowFileSharing: {
+      type: Boolean,
+      default: true
+    },
+    allowAIAssistant: {
+      type: Boolean,
+      default: true
+    },
+    autoStartBreak: {
+      type: Boolean,
+      default: false
+    },
+    autoStartFocus: {
+      type: Boolean,
+      default: false
+    },
+    breakDuration: {
+      type: Number,
+      default: 5
+    },
+    inviteOnly: {
+      type: Boolean,
+      default: false
     }
   },
   { timestamps: true }
 );
 
 export default mongoose.model('Room', roomSchema);
+

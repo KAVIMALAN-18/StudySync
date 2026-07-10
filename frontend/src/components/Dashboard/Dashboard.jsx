@@ -2,11 +2,27 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Plus, Users, AlertCircle, Clock, BookOpen, Target, Flame, 
-  ChevronRight, Activity, Code, Shield, Key, Sparkles, BookOpenCheck, ArrowRight, Lightbulb
+  ChevronRight, Code, Shield, Key, ArrowRight, Lightbulb, BookOpenCheck
 } from 'lucide-react';
-import { rooms as roomsApi, users as usersApi, sessions as sessionsApi } from '../../services/api';
+import { rooms as roomsApi, sessions as sessionsApi } from '../../services/api';
 import { useSocket } from '../../hooks/useSocket';
 import { useAuth } from '../../hooks/useAuth';
+import { Input } from '../ui/input';
+import { Textarea } from '../ui/textarea';
+import { Select } from '../ui/select';
+import { Skeleton } from '../ui/skeleton';
+import { Tooltip, TooltipTrigger, TooltipContent } from '../ui/tooltip';
+import { HoverCard, HoverCardTrigger, HoverCardContent } from '../ui/hover-card';
+import { toast } from 'sonner';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+  DialogClose,
+} from "../ui/dialog";
+import { cn } from '../../lib/utils';
 
 export const Dashboard = () => {
   const [publicRooms, setPublicRooms] = useState([]);
@@ -15,7 +31,6 @@ export const Dashboard = () => {
   const [stats, setStats] = useState({ totalFocusMinutes: 0, totalBreakMinutes: 0, totalPomodoros: 0, streak: 0 });
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
   
   // Create Room States
   const [showCreateRoom, setShowCreateRoom] = useState(false);
@@ -29,9 +44,12 @@ export const Dashboard = () => {
   // Join by Code States
   const [roomCodeToJoin, setRoomCodeToJoin] = useState('');
   const [joiningByCode, setJoiningByCode] = useState(false);
+  const [codePreview, setCodePreview] = useState(null);
+  const [codeError, setCodeError] = useState(null);
+  const [searchingCode, setSearchingCode] = useState(false);
   
   const navigate = useNavigate();
-  const { socket, emit, on, off } = useSocket();
+  const { socket } = useSocket();
   const { user } = useAuth();
 
   const SUBJECTS = [
@@ -59,14 +77,12 @@ export const Dashboard = () => {
     { quote: "The secret of getting ahead is getting started.", author: "Mark Twain" }
   ];
 
-  // Pick a quote based on username length or day streak so it stays static per session
   const quoteIndex = (user?.username?.length || 0) % MOTIVATIONAL_QUOTES.length;
   const todayQuote = MOTIVATIONAL_QUOTES[quoteIndex];
 
-  const loadData = async () => {
+  const loadData = async (showLoadingSkeleton = true) => {
     try {
-      setLoading(true);
-      setError(null);
+      if (showLoadingSkeleton) setLoading(true);
       const [allRooms, userRooms, userStats, userHistory] = await Promise.all([
         roomsApi.getAll(),
         roomsApi.getMyRooms(),
@@ -78,7 +94,7 @@ export const Dashboard = () => {
       setStats(userStats.data || { totalFocusMinutes: 0, totalBreakMinutes: 0, totalPomodoros: 0, streak: 0 });
       setHistory(userHistory.data || []);
     } catch (err) {
-      setError(err.message);
+      toast.error(err.message || 'Failed to load dashboard data');
       console.error('Failed to load data:', err);
     } finally {
       setLoading(false);
@@ -95,7 +111,7 @@ export const Dashboard = () => {
       };
 
       const handleStatsUpdated = () => {
-        loadData();
+        loadData(false);
       };
 
       socket.on('users:list', handleUsersList);
@@ -128,16 +144,14 @@ export const Dashboard = () => {
       setRoomDuration(30);
       setRoomSubject('General Study');
       setRoomIsPrivate(false);
-      setError(null);
+      toast.success('Room spawned successfully!');
 
-      // Join the socket room instantly and navigate
       if (socket) {
         socket.emit('room:join', { roomId, userId: user._id });
       }
       navigate(`/room/${roomId}`);
     } catch (err) {
-      setError(err.message);
-      console.error('Failed to create room:', err);
+      toast.error(err.message || 'Failed to create room');
     } finally {
       setCreating(false);
     }
@@ -147,33 +161,50 @@ export const Dashboard = () => {
     try {
       await roomsApi.join(roomId);
       socket?.emit('room:join', { roomId, userId: user._id });
+      toast.success('Entered Study Room');
       navigate(`/room/${roomId}`);
     } catch (err) {
-      console.error('Failed to join room:', err);
-      alert(err.message || 'Failed to join room');
+      toast.error(err.message || 'Failed to join room');
     }
   };
 
-  const handleJoinByCode = async (e) => {
+  const handlePreviewCode = async (e) => {
     e.preventDefault();
-    if (!roomCodeToJoin.trim()) return;
+    const code = roomCodeToJoin.trim().toUpperCase();
+    if (!code) return;
+    setSearchingCode(true);
+    setCodePreview(null);
+    setCodeError(null);
+    try {
+      const res = await roomsApi.getByCode(code);
+      setCodePreview(res.data);
+    } catch (err) {
+      const msg = err.message || 'Invalid room code';
+      if (msg.toLowerCase().includes('lock')) {
+        setCodeError({ type: 'locked', message: 'This room is locked by the owner.' });
+      } else if (msg.toLowerCase().includes('full')) {
+        setCodeError({ type: 'full', message: 'This room is full.' });
+      } else {
+        setCodeError({ type: 'invalid', message: 'No room found with that code.' });
+      }
+      toast.error(msg);
+    } finally {
+      setSearchingCode(false);
+    }
+  };
 
+  const handleJoinByCode = async (roomId) => {
     try {
       setJoiningByCode(true);
-      setError(null);
-      const res = await roomsApi.joinByCode(roomCodeToJoin.trim());
-      const roomId = res.data._id;
-      
-      if (socket) {
-        socket.emit('room:join', { roomId, userId: user._id });
-      }
+      await roomsApi.join(roomId);
+      if (socket) socket.emit('room:join', { roomId, userId: user._id });
+      toast.success('Entered study room successfully!');
       navigate(`/room/${roomId}`);
     } catch (err) {
-      setError(err.message || 'Invalid or inactive room code');
-      console.error('Failed to join by code:', err);
+      setCodeError({ type: 'error', message: err.message || 'Failed to join room' });
+      toast.error(err.message || 'Failed to join room');
     } finally {
       setJoiningByCode(false);
-      setRoomCodeToJoin('');
     }
   };
 
@@ -182,9 +213,8 @@ export const Dashboard = () => {
     const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     const result = [];
     
-    // Find Monday of the current week
     const today = new Date();
-    const currentDay = today.getDay(); // 0 is Sunday, 1 is Monday...
+    const currentDay = today.getDay();
     const distanceToMonday = currentDay === 0 ? -6 : 1 - currentDay;
     
     const monday = new Date(today);
@@ -210,138 +240,133 @@ export const Dashboard = () => {
 
   const weeklyData = getWeeklyProgressData();
   const maxMinutes = Math.max(...weeklyData.map((d) => d.minutes), 60);
-
-  // Continue last session logic
   const lastSessionRoom = history.length > 0 ? history[0].roomId : null;
 
   if (loading) {
     return (
-      <div className="dashboard-shell" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '60vh' }}>
-        <div style={{ textAlign: 'center' }}>
-          <div className="spinner" style={{ margin: '0 auto 1rem' }} />
-          <p style={{ color: 'var(--text-muted)' }}>Loading your study command center...</p>
+      <div className="p-8 max-w-[1200px] mx-auto space-y-8 animate-fade-in">
+        <div className="space-y-3">
+          <Skeleton className="h-10 w-64" />
+          <Skeleton className="h-5 w-96" />
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <Skeleton className="h-28 rounded-xl" />
+          <Skeleton className="h-28 rounded-xl" />
+          <Skeleton className="h-28 rounded-xl" />
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <div className="lg:col-span-2 space-y-6">
+            <Skeleton className="h-52 rounded-xl" />
+            <Skeleton className="h-44 rounded-xl" />
+          </div>
+          <div className="space-y-6">
+            <Skeleton className="h-40 rounded-xl" />
+            <Skeleton className="h-64 rounded-xl" />
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="dashboard-shell animate-fade-in" style={{ padding: '2rem', maxWidth: '1200px', margin: '0 auto' }}>
+    <div className="p-8 max-w-[1200px] mx-auto space-y-8 animate-fade-in">
       
-      {/* ── Welcome and Motivate section ── */}
-      <div className="dashboard-header" style={{ marginBottom: '2rem', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1.5rem' }}>
+      {/* Welcome Area */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
         <div>
-          <h1 className="dashboard-greeting" style={{ fontSize: '2rem' }}>Welcome back, <span>{user.fullName || user.username}</span>!</h1>
-          {(user.city || user.country) && (
-            <div style={{ fontSize: '0.82rem', color: '#a5b4fc', marginTop: '0.2rem', marginBottom: '0.4rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-              <span>📍 Studying from {[user.city, user.country].filter(Boolean).join(', ')}</span>
+          <h1 className="text-3xl font-display font-extrabold text-white tracking-tight">
+            Welcome back, <span className="text-indigo-400">{user.fullName || user.username}</span>!
+          </h1>
+          {user.city && (
+            <div className="text-xs text-indigo-300 mt-1 flex items-center gap-1">
+              📍 Studying from {user.city}, {user.country}
             </div>
           )}
-          <p className="dashboard-sub" style={{ fontSize: '0.95rem' }}>
-            "{todayQuote.quote}" — <span style={{ color: 'var(--text-secondary)', fontStyle: 'italic' }}>{todayQuote.author}</span>
+          <p className="text-sm text-slate-400 mt-2 max-w-2xl">
+            "{todayQuote.quote}" — <span className="italic text-slate-500">{todayQuote.author}</span>
           </p>
         </div>
         
-        {/* Continue Last Session Quick Action */}
         {lastSessionRoom && (
-          <div className="glass-card animate-pulse-glow" style={{ padding: '0.75rem 1.25rem', border: '1px solid rgba(129,140,248,0.25)', borderRadius: '12px', display: 'flex', alignItems: 'center', gap: '1rem', background: 'rgba(99, 102, 241, 0.05)' }}>
+          <div className="bg-indigo-600/5 border border-indigo-500/20 rounded-xl p-4 flex items-center gap-4 animate-pulse-glow shrink-0">
             <div>
-              <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>CONTINUE STUDYING</div>
-              <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'white' }}>{lastSessionRoom.name}</div>
+              <div className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">Continue Studying</div>
+              <div className="text-sm font-bold text-white">{lastSessionRoom.name}</div>
             </div>
             <button 
               onClick={() => navigate(`/room/${lastSessionRoom._id}`)} 
-              className="btn btn-primary" 
-              style={{ padding: '0.4rem 0.85rem', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}
+              className="inline-flex items-center justify-center rounded-md text-xs font-semibold h-8 px-3 bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer"
             >
-              Resume <ArrowRight size={14} />
+              Resume <ArrowRight size={13} className="ml-1" />
             </button>
           </div>
         )}
       </div>
 
-      {error && (
-        <div className="inline-toast inline-toast-error animate-slide-up" style={{ marginBottom: '1.5rem' }}>
-          <AlertCircle size={16} />
-          {error}
+      {/* Grid Statistics */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="bg-slate-900/40 border border-border p-5 rounded-xl flex items-center gap-4 hover:border-indigo-500/35 transition-all">
+          <div className="p-3 bg-indigo-600/10 text-indigo-400 rounded-lg">
+            <Clock size={22} />
+          </div>
+          <div>
+            <div className="text-2xl font-bold font-display text-white">{stats.totalFocusMinutes}m</div>
+            <div className="text-xs text-slate-400">Total Focus Time</div>
+          </div>
         </div>
-      )}
 
-      {/* ── Top Stat Cards ── */}
-      <div className="stat-cards-grid" style={{ marginBottom: '2rem' }}>
-        <div className="stat-card">
-          <div className="stat-icon" style={{ background: 'rgba(99,102,241,0.1)', color: '#a5b4fc' }}>
-            <Clock size={20} />
+        <div className="bg-slate-900/40 border border-border p-5 rounded-xl flex items-center gap-4 hover:border-emerald-500/35 transition-all">
+          <div className="p-3 bg-emerald-600/10 text-emerald-400 rounded-lg">
+            <Target size={22} />
           </div>
-          <div className="stat-value">{stats.totalFocusMinutes}m</div>
-          <div className="stat-label">Total Focus Time</div>
+          <div>
+            <div className="text-2xl font-bold font-display text-white">{stats.totalPomodoros}</div>
+            <div className="text-xs text-slate-400">Pomodoros Completed</div>
+          </div>
         </div>
-        <div className="stat-card">
-          <div className="stat-icon" style={{ background: 'rgba(16,185,129,0.1)', color: '#6ee7b7' }}>
-            <Target size={20} />
+
+        <div className="bg-slate-900/40 border border-border p-5 rounded-xl flex items-center gap-4 hover:border-amber-500/35 transition-all">
+          <div className="p-3 bg-amber-600/10 text-amber-400 rounded-lg">
+            <Flame size={22} />
           </div>
-          <div className="stat-value">{stats.totalPomodoros}</div>
-          <div className="stat-label">Pomodoros Done</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-icon" style={{ background: 'rgba(245,158,11,0.1)', color: '#fcd34d' }}>
-            <Flame size={20} />
+          <div>
+            <div className="text-2xl font-bold font-display text-white">{stats.streak}</div>
+            <div className="text-xs text-slate-400">Daily Streak</div>
           </div>
-          <div className="stat-value">{stats.streak}</div>
-          <div className="stat-label">Daily Streak</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-icon" style={{ background: 'rgba(217,70,239,0.1)', color: '#f0abfc' }}>
-            <BookOpen size={20} />
-          </div>
-          <div className="stat-value">{myRooms.length}</div>
-          <div className="stat-label">Active Rooms</div>
         </div>
       </div>
 
-      {/* ── Two-Column Layout ── */}
-      <div className="dashboard-grid">
+      {/* Main Sections */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         
-        {/* ── Left Main Content ── */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+        {/* Left main content columns */}
+        <div className="lg:col-span-2 space-y-8">
           
-          {/* Weekly Analytics Chart */}
-          <div className="chart-card">
-            <h2 className="section-title"><Activity size={18} color="#a5b4fc" /> Focus Progress & Metrics</h2>
-            <div style={{ height: '180px', marginTop: '1.5rem', position: 'relative' }}>
+          {/* Weekly chart progress */}
+          <div className="bg-slate-900/40 border border-border p-6 rounded-xl space-y-4">
+            <h2 className="text-lg font-bold font-display text-white flex items-center gap-2">
+              <BookOpenCheck size={18} className="text-indigo-400" /> Focus Progress & Metrics
+            </h2>
+            <div className="h-44 w-full relative">
               <svg width="100%" height="100%" viewBox="0 0 700 180" preserveAspectRatio="none">
-                <defs>
-                  <linearGradient id="barGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#818cf8" />
-                    <stop offset="100%" stopColor="#4f46e5" />
-                  </linearGradient>
-                </defs>
-                
-                {/* Grid Lines */}
-                <line x1="0" y1="140" x2="700" y2="140" className="chart-grid-line" strokeWidth="1" />
-                <line x1="0" y1="70" x2="700" y2="70" className="chart-grid-line" strokeWidth="1" strokeDasharray="4 4" />
-
+                <line x1="0" y1="140" x2="700" y2="140" className="stroke-slate-800" strokeWidth="1" />
+                <line x1="0" y1="70" x2="700" y2="70" className="stroke-slate-800/50" strokeWidth="1" strokeDasharray="4 4" />
                 {weeklyData.map((d, i) => {
                   const barWidth = 40;
                   const gap = (700 - (7 * barWidth)) / 8;
-                  const barHeight = Math.max((d.minutes / maxMinutes) * 120, 4); // min height 4
+                  const barHeight = Math.max((d.minutes / maxMinutes) * 120, 4);
                   const x = gap + i * (barWidth + gap);
                   const y = 140 - barHeight;
-
                   return (
                     <g key={i}>
-                      {/* Background Bar */}
-                      <rect x={x} y="20" width={barWidth} height="120" rx="4" className="chart-bar-bg" />
-                      {/* Foreground Bar */}
-                      <rect x={x} y={y} width={barWidth} height={barHeight} rx="4" className="chart-bar-fill" />
-                      
+                      <rect x={x} y="20" width={barWidth} height="120" rx="4" className="fill-slate-900/70" />
+                      <rect x={x} y={y} width={barWidth} height={barHeight} rx="4" className="fill-indigo-600/80 hover:fill-indigo-500 transition-colors" />
                       {d.minutes > 0 && (
-                        <text x={x + barWidth/2} y={y - 8} textAnchor="middle" className="chart-val-label">
+                        <text x={x + barWidth/2} y={y - 8} textAnchor="middle" className="text-[10px] font-bold fill-indigo-400">
                           {d.minutes}m
                         </text>
                       )}
-                      
-                      <text x={x + barWidth/2} y="165" textAnchor="middle" className="chart-label">
+                      <text x={x + barWidth/2} y="160" textAnchor="middle" className="text-[9px] fill-slate-500 font-medium">
                         {d.label}
                       </text>
                     </g>
@@ -351,251 +376,302 @@ export const Dashboard = () => {
             </div>
           </div>
 
-          {/* Room Controls (Create Room & Join Code Inline) */}
-          <div style={{ display: 'flex', gap: '1rem', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap' }}>
-            <h2 className="section-title" style={{ marginBottom: 0 }}><BookOpen size={18} color="#a5b4fc" /> My Study Rooms</h2>
-            
-            <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
-              {/* Join by Code Mini Form */}
-              <form onSubmit={handleJoinByCode} style={{ display: 'flex', gap: '0.375rem' }}>
-                <input 
-                  type="text" 
-                  value={roomCodeToJoin}
-                  onChange={(e) => setRoomCodeToJoin(e.target.value)}
-                  placeholder="Enter Room Code"
-                  className="input-dark"
-                  style={{ width: '130px', padding: '0.4rem 0.75rem', fontSize: '0.8rem', borderRadius: '6px' }}
-                  required
-                />
-                <button type="submit" disabled={joiningByCode} className="btn btn-ghost" style={{ padding: '0.4rem 0.75rem', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.25rem', borderColor: 'rgba(255,255,255,0.1)' }}>
-                  <Key size={12} /> {joiningByCode ? 'Joining...' : 'Join'}
-                </button>
-              </form>
-              
-              <button className="btn btn-primary" onClick={() => setShowCreateRoom(!showCreateRoom)} style={{ padding: '0.45rem 1rem', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.25rem' }}>
-                <Plus size={16} /> Create Room
+          {/* Rooms Area */}
+          <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-bold font-display text-white flex items-center gap-2">
+                <BookOpen size={18} className="text-indigo-400" /> My Study Rooms
+              </h2>
+              <button 
+                onClick={() => setShowCreateRoom(true)}
+                className="inline-flex items-center justify-center rounded-md text-xs font-semibold h-8 px-3 bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer"
+              >
+                <Plus size={14} className="mr-1" /> Create Room
               </button>
             </div>
-          </div>
 
-          {showCreateRoom && (
-            <form onSubmit={handleCreateRoom} className="create-room-panel animate-scale-up" style={{ padding: '1.75rem', borderRadius: '12px', background: 'rgba(15, 23, 42, 0.8)', border: '1px solid rgba(255,255,255,0.08)' }}>
-              <h3 className="section-title-sm" style={{ marginBottom: '1.25rem', color: 'var(--text-primary)' }}>Create New Study Space</h3>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                <div style={{ gridColumn: 'span 2' }}>
-                  <label className="auth-label">Room Name</label>
-                  <input
-                    type="text"
-                    value={roomName}
-                    onChange={(e) => setRoomName(e.target.value)}
-                    className="input-dark"
-                    placeholder="e.g., Late Night DSA Grind"
-                    required
-                  />
-                </div>
-                
-                <div style={{ gridColumn: 'span 2' }}>
-                  <label className="auth-label">Description</label>
-                  <textarea
-                    value={roomDescription}
-                    onChange={(e) => setRoomDescription(e.target.value)}
-                    className="input-dark"
-                    placeholder="What are the goals of this session?"
-                    rows="2"
-                    style={{ resize: 'none' }}
-                  />
-                </div>
-
-                <div>
-                  <label className="auth-label">Subject</label>
-                  <select 
-                    value={roomSubject}
-                    onChange={(e) => setRoomSubject(e.target.value)}
-                    className="input-dark"
-                    style={{ width: '100%', background: 'rgba(15,23,42,0.8)' }}
-                  >
-                    {SUBJECTS.map((sub) => (
-                      <option key={sub} value={sub}>{sub}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="auth-label">Focus Duration</label>
-                  <select 
-                    value={roomDuration}
-                    onChange={(e) => setRoomDuration(e.target.value)}
-                    className="input-dark"
-                    style={{ width: '100%', background: 'rgba(15,23,42,0.8)' }}
-                  >
-                    <option value="25">25 mins (Pomodoro standard)</option>
-                    <option value="30">30 mins</option>
-                    <option value="45">45 mins</option>
-                    <option value="50">50 mins</option>
-                    <option value="60">60 mins</option>
-                    <option value="90">90 mins</option>
-                  </select>
-                </div>
-
-                <div style={{ gridColumn: 'span 2' }}>
-                  <label className="auth-label">Room Privacy</label>
-                  <select 
-                    value={roomIsPrivate ? 'private' : 'public'}
-                    onChange={(e) => setRoomIsPrivate(e.target.value === 'private')}
-                    className="input-dark"
-                    style={{ width: '100%', background: 'rgba(15,23,42,0.8)' }}
-                  >
-                    <option value="public">Public Study Room (visible to everyone)</option>
-                    <option value="private">Private Study Room (accessible via invitation/invite link only)</option>
-                  </select>
-                </div>
-
-                <div style={{ gridColumn: 'span 2', display: 'flex', gap: '0.75rem', marginTop: '0.5rem' }}>
-                  <button type="submit" disabled={creating} className="btn btn-primary" style={{ flex: 1 }}>
-                    {creating ? 'Spawning Space...' : 'Spawn Room'}
-                  </button>
-                  <button type="button" onClick={() => setShowCreateRoom(false)} className="btn btn-ghost" style={{ flex: 1 }}>
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            </form>
-          )}
-
-          {/* Rooms Grid */}
-          {myRooms.length === 0 ? (
-            <div className="empty-state glass-card" style={{ padding: '3rem 2rem' }}>
-              <BookOpenCheck size={36} className="empty-state-icon" style={{ color: '#818cf8', opacity: 0.6 }} />
-              <div className="empty-state-title">No Custom Rooms Yet</div>
-              <div className="empty-state-sub" style={{ marginBottom: '1.25rem' }}>Your personal study spaces will be listed here. You can make them public for anyone to join, or keep them private for close friends.</div>
-              <button className="btn btn-primary" onClick={() => setShowCreateRoom(true)}>
-                <Plus size={16} /> Spawn Your First Room
-              </button>
-            </div>
-          ) : (
-            <div className="rooms-grid">
-              {myRooms.map((room) => (
-                <div key={room._id} onClick={() => navigate(`/room/${room._id}`)} className="room-card" style={{ cursor: 'pointer' }}>
-                  <div className={`room-card-accent ${room.isPrivate ? 'private' : ''}`} style={{ background: room.isPrivate ? 'linear-gradient(135deg, #c084fc, #a855f7)' : 'linear-gradient(135deg, #818cf8, #4f46e5)' }} />
-                  <div className="room-card-body">
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
-                      <span className="room-subject" style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{room.subject || 'General Study'}</span>
-                      {room.isPrivate && <span style={{ fontSize: '0.65rem', padding: '0.1rem 0.4rem', borderRadius: '4px', background: 'rgba(192, 132, 252, 0.1)', color: '#c084fc', border: '1px solid rgba(192, 132, 252, 0.2)' }}>Private</span>}
+            {/* Create Room Dialog */}
+            <Dialog open={showCreateRoom} onOpenChange={setShowCreateRoom}>
+              <DialogContent className="max-w-md bg-slate-950 border border-border">
+                <DialogHeader>
+                  <DialogTitle>Spawn Study Space</DialogTitle>
+                </DialogHeader>
+                <form onSubmit={handleCreateRoom} className="space-y-4 pt-2">
+                  <div className="space-y-1">
+                    <label className="text-xs text-slate-400 font-medium">Room Name</label>
+                    <Input 
+                      value={roomName}
+                      onChange={(e) => setRoomName(e.target.value)}
+                      placeholder="e.g., Late Night DSA Grind"
+                      required
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-xs text-slate-400 font-medium">Description</label>
+                    <Textarea 
+                      value={roomDescription}
+                      onChange={(e) => setRoomDescription(e.target.value)}
+                      placeholder="What are the goals of this session?"
+                      rows={2}
+                      className="resize-none"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-xs text-slate-400 font-medium">Subject</label>
+                      <Select value={roomSubject} onChange={(e) => setRoomSubject(e.target.value)}>
+                        {SUBJECTS.map(sub => <option key={sub} value={sub}>{sub}</option>)}
+                      </Select>
                     </div>
-                    <h3 className="room-card-title">{room.name}</h3>
-                    <p className="room-card-desc">{room.description || 'No description provided.'}</p>
-                    <div className="room-card-meta" style={{ marginTop: '1rem' }}>
-                      <div className="room-card-stat">
-                        <Users size={14} /> {room.members?.length || 0} studying
-                      </div>
-                      <div className="room-card-stat">
-                        <Clock size={14} /> {room.studyDuration}m session
-                      </div>
+                    <div className="space-y-1">
+                      <label className="text-xs text-slate-400 font-medium">Focus Duration</label>
+                      <Select value={roomDuration} onChange={(e) => setRoomDuration(e.target.value)}>
+                        <option value="25">25 mins (Standard)</option>
+                        <option value="30">30 mins</option>
+                        <option value="45">45 mins</option>
+                        <option value="60">60 mins</option>
+                      </Select>
                     </div>
                   </div>
-                </div>
-              ))}
-            </div>
-          )}
+                  <div className="space-y-1">
+                    <label className="text-xs text-slate-400 font-medium">Privacy Setting</label>
+                    <Select value={roomIsPrivate ? 'private' : 'public'} onChange={(e) => setRoomIsPrivate(e.target.value === 'private')}>
+                      <option value="public">Public (Visible to everyone)</option>
+                      <option value="private">Private (Invite only)</option>
+                    </Select>
+                  </div>
+                  <DialogFooter className="pt-2">
+                    <DialogClose asChild>
+                      <button type="button" className="inline-flex items-center justify-center rounded-md text-xs font-semibold h-9 px-4 bg-white/5 hover:bg-white/10 text-white cursor-pointer">
+                        Cancel
+                      </button>
+                    </DialogClose>
+                    <button type="submit" disabled={creating} className="inline-flex items-center justify-center rounded-md text-xs font-semibold h-9 px-4 bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer ml-2">
+                      {creating ? 'Spawning...' : 'Spawn Room'}
+                    </button>
+                  </DialogFooter>
+                </form>
+              </DialogContent>
+            </Dialog>
 
-          {/* Public Study Spaces */}
-          <h2 className="section-title"><Users size={18} color="#6ee7b7" /> Join Active Public Rooms</h2>
-          {publicRooms.length === 0 ? (
-            <div className="empty-state glass-card-sm" style={{ padding: '2.5rem 1.5rem' }}>
-              <Users size={32} className="empty-state-icon" style={{ opacity: 0.3 }} />
-              <div className="empty-state-title">All Quiet Here</div>
-              <div className="empty-state-sub">There are currently no active public study spaces. Why not create one and start a public session?</div>
-            </div>
-          ) : (
-            <div className="rooms-grid">
-              {publicRooms.map((room) => (
-                <div key={room._id} className="room-card">
-                  <div className="room-card-accent-cyan" />
-                  <div className="room-card-body">
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
-                      <span className="room-subject" style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{room.subject || 'General Study'}</span>
+            {myRooms.length === 0 ? (
+              <div className="border border-border border-dashed p-8 rounded-xl text-center space-y-4 bg-slate-900/10">
+                <BookOpenCheck size={36} className="mx-auto text-slate-600" />
+                <div className="text-sm font-bold text-white">No custom rooms created yet</div>
+                <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                  Create your personal study rooms to customize study duration, select privacy settings, and study together.
+                </p>
+                <button 
+                  onClick={() => setShowCreateRoom(true)} 
+                  className="inline-flex items-center justify-center rounded-md text-xs font-semibold h-8 px-3 bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer"
+                >
+                  Create Your First Room
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {myRooms.map((room) => (
+                  <div 
+                    key={room._id} 
+                    onClick={() => navigate(`/room/${room._id}`)} 
+                    className="group bg-slate-900/40 hover:bg-slate-900/70 border border-border hover:border-indigo-500/40 rounded-xl p-5 cursor-pointer relative overflow-hidden transition-all"
+                  >
+                    <div className={cn(
+                      "absolute left-0 top-0 bottom-0 w-1",
+                      room.isPrivate ? "bg-purple-500" : "bg-indigo-500"
+                    )} />
+                    <div className="flex justify-between items-start mb-2">
+                      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">{room.subject || 'General'}</span>
+                      {room.isPrivate && (
+                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400 border border-purple-500/20">Private</span>
+                      )}
                     </div>
-                    <h3 className="room-card-title">{room.name}</h3>
-                    <p className="room-card-desc">{room.description || 'No description provided.'}</p>
+                    <h3 className="font-bold font-display text-white text-base truncate group-hover:text-indigo-400 transition-colors">{room.name}</h3>
+                    <p className="text-xs text-slate-400 line-clamp-2 mt-1 h-8">{room.description || 'No description provided.'}</p>
+                    <div className="flex gap-4 text-[10px] text-slate-500 pt-4 mt-2 border-t border-border/20">
+                      <span className="flex items-center gap-1"><Users size={12} /> {room.members?.length || 0} studying</span>
+                      <span className="flex items-center gap-1"><Clock size={12} /> {room.studyDuration} mins</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Public Study Spaces */}
+            <h2 className="text-lg font-bold font-display text-white flex items-center gap-2 pt-4">
+              <Users size={18} className="text-emerald-400" /> Active Public Rooms
+            </h2>
+            {publicRooms.length === 0 ? (
+              <div className="border border-border p-8 rounded-xl text-center space-y-2 bg-slate-900/10">
+                <Users size={32} className="mx-auto text-slate-700" />
+                <div className="text-xs font-semibold text-slate-500">No public study rooms are currently online.</div>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {publicRooms.map((room) => (
+                  <div key={room._id} className="bg-slate-900/40 border border-border rounded-xl p-5 flex flex-col justify-between hover:border-emerald-500/20 transition-all">
+                    <div>
+                      <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mb-2">{room.subject || 'General'}</div>
+                      <h3 className="font-bold font-display text-white text-base truncate">{room.name}</h3>
+                      <p className="text-xs text-slate-400 line-clamp-2 mt-1 h-8">{room.description || 'No description provided.'}</p>
+                    </div>
                     
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '1rem' }}>
-                      <div className="room-card-stat">
-                        <Users size={14} /> {room.members?.length || 0} active
-                      </div>
+                    <div className="flex items-center justify-between pt-4 mt-4 border-t border-border/20">
+                      <span className="text-[10px] text-slate-500 flex items-center gap-1"><Users size={12} /> {room.members?.length || 0} active</span>
                       <button
-                        onClick={(e) => { e.stopPropagation(); handleJoinRoom(room._id); }}
-                        className="badge badge-emerald"
-                        style={{ cursor: 'pointer', border: 'none', padding: '0.35rem 0.75rem', borderRadius: '4px', fontSize: '0.75rem' }}
+                        onClick={() => handleJoinRoom(room._id)}
+                        className="inline-flex items-center justify-center rounded text-xs font-bold h-7 px-3 bg-emerald-600/10 hover:bg-emerald-600 text-emerald-400 hover:text-white transition-all cursor-pointer"
                       >
-                        Enter Room <ChevronRight size={12} />
+                        Enter Room <ChevronRight size={11} className="ml-0.5" />
                       </button>
                     </div>
                   </div>
-                </div>
-              ))}
-            </div>
-          )}
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* ── Right Sidebar ── */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '2rem' }}>
+        {/* Right Sidebar Columns */}
+        <div className="space-y-6">
           
-          {/* Onboarding tips */}
-          <div className="sidebar-card" style={{ background: 'rgba(99,102,241,0.02)', border: '1px solid rgba(129,140,248,0.1)' }}>
-            <h3 className="section-title-sm" style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', color: '#a5b4fc' }}>
-              <Lightbulb size={16} /> Quick Start Tips
+          {/* Join by Code Column */}
+          <div className="bg-slate-900/40 border border-indigo-500/20 p-5 rounded-xl space-y-4">
+            <h3 className="text-sm font-bold font-display text-white flex items-center gap-2">
+              <Key size={15} className="text-indigo-400" /> Join by Room Code
             </h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem', marginTop: '0.75rem' }}>
+            <form onSubmit={handlePreviewCode} className="flex gap-2">
+              <Input
+                value={roomCodeToJoin}
+                onChange={(e) => { setRoomCodeToJoin(e.target.value.toUpperCase()); setCodePreview(null); setCodeError(null); }}
+                placeholder="e.g. JVA7K9"
+                className="font-bold tracking-widest text-center text-white placeholder:tracking-normal uppercase"
+                maxLength={8}
+                required
+              />
+              <button 
+                type="submit" 
+                disabled={searchingCode} 
+                className="inline-flex items-center justify-center rounded-md text-xs font-semibold h-10 px-4 bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer shrink-0"
+              >
+                {searchingCode ? '...' : 'Search'}
+              </button>
+            </form>
+
+            {codeError && (
+              <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 flex items-center gap-2">
+                <AlertCircle size={14} className="text-red-400" />
+                <span className="text-[11px] text-red-300">{codeError.message}</span>
+              </div>
+            )}
+
+            {codePreview && (
+              <div className="p-4 rounded-lg bg-indigo-600/5 border border-indigo-500/25 space-y-3 animate-scale-up">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h4 className="font-bold text-white text-sm">{codePreview.name}</h4>
+                    <span className="text-[10px] text-indigo-400 font-semibold">{codePreview.subject || 'General'}</span>
+                  </div>
+                  <span className={cn(
+                    "text-[9px] font-bold px-1.5 py-0.5 rounded border",
+                    codePreview.isPrivate 
+                      ? "bg-purple-500/10 text-purple-400 border-purple-500/20" 
+                      : "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                  )}>
+                    {codePreview.isPrivate ? '🔒 Private' : '🌐 Public'}
+                  </span>
+                </div>
+                {codePreview.description && (
+                  <p className="text-[11px] text-slate-400 leading-relaxed">{codePreview.description}</p>
+                )}
+                <div className="flex gap-4 text-[10px] text-slate-500">
+                  <span>👥 {codePreview.members?.length || 0} members</span>
+                  <span>🛡 Owner: {codePreview.createdBy?.username || 'Unknown'}</span>
+                </div>
+                <button
+                  disabled={joiningByCode || codePreview.isLocked}
+                  onClick={() => handleJoinByCode(codePreview._id)}
+                  className="w-full inline-flex items-center justify-center rounded-md text-xs font-semibold h-8 bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer"
+                >
+                  {codePreview.isLocked ? '🔒 Locked' : joiningByCode ? 'Joining...' : 'Join Room'}
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Tips Column */}
+          <div className="bg-slate-900/20 border border-border p-5 rounded-xl space-y-3">
+            <h3 className="text-xs font-bold text-indigo-300 uppercase tracking-wider flex items-center gap-1.5">
+              <Lightbulb size={14} /> Quick Tips
+            </h3>
+            <div className="space-y-3.5">
               {ONBOARDING_TIPS.map((tip, i) => (
-                <div key={i} style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-start' }}>
-                  <div style={{ background: 'rgba(129,140,248,0.1)', color: '#818cf8', fontSize: '0.7rem', fontWeight: 900, borderRadius: '4px', padding: '0.1rem 0.35rem', marginTop: '2px' }}>
+                <div key={i} className="flex gap-2.5 items-start">
+                  <div className="bg-indigo-600/10 text-indigo-400 text-[10px] font-extrabold rounded w-5 h-5 flex items-center justify-center shrink-0">
                     {i+1}
                   </div>
                   <div>
-                    <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--text-primary)' }}>{tip.title}</div>
-                    <div style={{ fontSize: '0.725rem', color: 'var(--text-muted)' }}>{tip.desc}</div>
+                    <h4 className="text-xs font-bold text-white leading-tight">{tip.title}</h4>
+                    <p className="text-[11px] text-slate-400 leading-normal mt-0.5">{tip.desc}</p>
                   </div>
                 </div>
               ))}
             </div>
           </div>
 
-          {/* Online Users */}
-          <div className="sidebar-card">
-            <h3 className="section-title-sm">Active Online ({onlineUsers.length})</h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', marginTop: '0.75rem' }}>
+          {/* Online collaborators */}
+          <div className="bg-slate-900/40 border border-border p-5 rounded-xl space-y-3">
+            <h3 className="text-xs font-bold text-white uppercase tracking-wider">Active Collaborators ({onlineUsers.length})</h3>
+            <div className="space-y-2 max-h-48 overflow-y-auto viewport-scroll pr-1">
               {onlineUsers.length === 0 ? (
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'center', padding: '1rem 0' }}>All collaborators offline</div>
+                <div className="text-xs text-slate-500 text-center py-4">All collaborators offline</div>
               ) : (
-                onlineUsers.slice(0, 8).map((u, idx) => (
-                  <div key={idx} className="online-user-item" style={{ padding: '0.4rem 0.6rem', borderRadius: '6px', background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.03)' }}>
-                    <div className="online-user-avatar" style={{ background: 'rgba(129,140,248,0.15)', color: '#818cf8', fontWeight: 'bold' }}>
-                      {(u.username?.[0] || 'U').toUpperCase()}
-                      <span className="online-dot" style={{ background: '#10b981' }} />
-                    </div>
-                    <div className="online-user-name" style={{ fontSize: '0.8rem' }}>{u.username || 'Student'}</div>
-                  </div>
+                onlineUsers.map((u, idx) => (
+                  <HoverCard key={idx}>
+                    <HoverCardTrigger asChild>
+                      <div className="flex items-center gap-2.5 p-1.5 rounded-lg hover:bg-white/[0.03] transition-all cursor-pointer">
+                        <div className="relative w-7 h-7 rounded-full bg-indigo-600/20 text-indigo-400 flex items-center justify-center font-bold text-xs border border-indigo-500/10">
+                          {(u.username?.[0] || 'U').toUpperCase()}
+                          <span className="absolute bottom-0 right-0 w-2 h-2 bg-emerald-500 border border-slate-950 rounded-full" />
+                        </div>
+                        <span className="text-xs font-medium text-slate-300 truncate">{u.username}</span>
+                      </div>
+                    </HoverCardTrigger>
+                    <HoverCardContent className="w-64 border-border bg-slate-950 space-y-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-indigo-600/30 text-indigo-400 flex items-center justify-center font-bold text-sm">
+                          {(u.username?.[0] || 'U').toUpperCase()}
+                        </div>
+                        <div>
+                          <div className="font-bold text-white text-sm">{u.username}</div>
+                          <span className="text-[10px] text-emerald-400 flex items-center gap-1 font-semibold">
+                            <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full" /> Online
+                          </span>
+                        </div>
+                      </div>
+                    </HoverCardContent>
+                  </HoverCard>
                 ))
               )}
             </div>
           </div>
 
-          {/* Recent Sessions */}
-          <div className="sidebar-card">
-            <h3 className="section-title-sm">Recent Activity</h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', marginTop: '0.75rem', maxHeight: '300px', overflowY: 'auto' }}>
+          {/* Recent sessions column */}
+          <div className="bg-slate-900/40 border border-border p-5 rounded-xl space-y-3">
+            <h3 className="text-xs font-bold text-white uppercase tracking-wider">Recent Activity</h3>
+            <div className="space-y-2.5 max-h-56 overflow-y-auto viewport-scroll pr-1">
               {history.length === 0 ? (
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'center', padding: '1rem 0' }}>No recent study history</div>
+                <div className="text-xs text-slate-500 text-center py-6">No recent study history</div>
               ) : (
                 history.map((session, idx) => (
-                  <div key={idx} className="session-item" style={{ padding: '0.6rem 0.85rem', borderRadius: '6px', background: 'rgba(255,255,255,0.01)', border: '1px solid rgba(255,255,255,0.03)' }}>
-                    <div>
-                      <div className="session-room" style={{ fontSize: '0.8rem', fontWeight: 600 }}>{session.roomId?.name || 'Study Room'}</div>
-                      <div className="session-date" style={{ fontSize: '0.675rem' }}>{new Date(session.sessionDate).toLocaleDateString()}</div>
+                  <div key={idx} className="flex justify-between items-center p-2 rounded bg-white/[0.02] border border-white/[0.04]">
+                    <div className="min-w-0">
+                      <h4 className="text-xs font-semibold text-white truncate">{session.roomId?.name || 'Study Session'}</h4>
+                      <span className="text-[10px] text-slate-500">{new Date(session.sessionDate).toLocaleDateString()}</span>
                     </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div className="session-mins" style={{ fontSize: '0.8rem', fontWeight: 700, color: '#818cf8' }}>{session.focusMinutes}m</div>
-                      <div className="session-date" style={{ fontSize: '0.675rem' }}>{session.pomodoroCount} 🍅</div>
+                    <div className="text-right shrink-0">
+                      <span className="text-xs font-bold text-indigo-400 block">{session.focusMinutes}m</span>
+                      <span className="text-[10px] text-slate-500">{session.pomodoroCount || 0} 🍅</span>
                     </div>
                   </div>
                 ))

@@ -615,6 +615,17 @@ export const setupSocketEvents = (io) => {
       }
     });
 
+    socket.on('room:update_settings', (data) => {
+      try {
+        const { roomId, settings } = data;
+        if (roomId && settings) {
+          socket.to(`room:${roomId}`).emit('room:settings-changed', settings);
+        }
+      } catch (err) {
+        console.error('Error in room:update_settings:', err);
+      }
+    });
+
     socket.on('room:invite', async (data) => {
       try {
         const { roomId, recipientUserId, recipientId, senderName } = data;
